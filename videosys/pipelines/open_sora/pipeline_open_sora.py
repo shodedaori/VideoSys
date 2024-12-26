@@ -16,7 +16,9 @@ from videosys.core.pab_mgr import PABConfig, set_pab_manager, update_steps
 from videosys.core.pipeline import VideoSysPipeline, VideoSysPipelineOutput
 from videosys.models.autoencoders.autoencoder_kl_open_sora import OpenSoraVAE_V1_2
 from videosys.models.transformers.open_sora_transformer_3d import STDiT3
+from videosys.models.transformers.cache_model import STDiT3C
 from videosys.schedulers.scheduling_rflow_open_sora import RFLOW
+from videosys.schedulers.scheduling_si_open_sora import SIRFLOW
 from videosys.utils.utils import save_video, set_seed
 
 from .data_process import get_image_size, get_num_frames, prepare_multi_resolution_info, read_from_path
@@ -142,6 +144,8 @@ class OpenSoraConfig:
         # ======== pab ========
         enable_pab: bool = False,
         pab_config: PABConfig = OpenSoraPABConfig(),
+        use_si: bool = False,
+        si_sparsity: float = 0.7,
     ):
         self.pipeline_cls = OpenSoraPipeline
         self.transformer = transformer
@@ -161,6 +165,9 @@ class OpenSoraConfig:
         # ======== pab ========
         self.enable_pab = enable_pab
         self.pab_config = pab_config
+        # ======== si ========
+        self.use_si = use_si
+        self.si_sparsity = si_sparsity
 
 
 class OpenSoraPipeline(VideoSysPipeline):
@@ -218,14 +225,26 @@ class OpenSoraPipeline(VideoSysPipeline):
                 micro_frame_size=17,
                 micro_batch_size=config.tiling_size,
             ).to(dtype)
+
         if transformer is None:
-            transformer = STDiT3.from_pretrained(config.transformer, enable_flash_attn=config.enable_flash_attn).to(
-                dtype
-            )
+            if config.use_si:
+                transformer = STDiT3C.from_pretrained(config.transformer, enable_flash_attn=config.enable_flash_attn).to(
+                    dtype
+                )
+            else:
+                transformer = STDiT3.from_pretrained(config.transformer, enable_flash_attn=config.enable_flash_attn).to(
+                    dtype
+                )
+        
         if scheduler is None:
-            scheduler = RFLOW(
-                use_timestep_transform=True, num_sampling_steps=config.num_sampling_steps, cfg_scale=config.cfg_scale
-            )
+            if config.use_si:
+                scheduler = SIRFLOW(
+                    config.si_sparsity, use_timestep_transform=True, num_sampling_steps=config.num_sampling_steps, cfg_scale=config.cfg_scale
+                )
+            else:
+                scheduler = RFLOW(
+                    use_timestep_transform=True, num_sampling_steps=config.num_sampling_steps, cfg_scale=config.cfg_scale
+                )
 
         # pab
         if config.enable_pab:
