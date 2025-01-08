@@ -11,8 +11,13 @@ from tests.fast_infer.utils import save_obj
 class SIRFLOW(RFLOW):
     def __init__(self, sparsity, *args, **kwargs):
         self.sparsity = sparsity
-        self.warm_prop = 0.2
-        self.cool_prop = 1.0
+        self.warm_prop = 2 / 6
+        self.cool_prop = 6 / 6 
+
+        if sparsity >= 1.0: # no sparse in the sampling
+            self.warm_prop = 1.1
+            self.cool_prop = 1.0
+
         print(f"Using Selective Inference: sparsity {sparsity}, warm prop {self.warm_prop}, cool prop {self.cool_prop}")
         super().__init__(*args, **kwargs)
     
@@ -51,8 +56,9 @@ class SIRFLOW(RFLOW):
 
         warm_steps = math.ceil(self.num_sampling_steps * self.warm_prop)
         cool_steps = math.floor(self.num_sampling_steps * self.cool_prop)
-        is_model = OpenSoraSI(model)
-        is_model.init_generate_cache(z)
+        print("warm step and cool step:", warm_steps, cool_steps)
+        si_model = OpenSoraSI(model)
+        si_model.init_generate_cache(z)
         selec_index = (None, None)
 
         save_list = []
@@ -81,41 +87,38 @@ class SIRFLOW(RFLOW):
             t = torch.cat([t, t], 0)
 
             # pred = model(z_in, t, **model_args).chunk(2, dim=1)[0]
-            # if warm_steps <= i < cool_steps:
-            #     model_args["use_cache"] = True
-            #     model_args["index"] = selec_index
-            # else:
-            #     model_args["use_cache"] = False
-            #     model_args["index"] = (None, None)
-            model_args["use_cache"] = False
-            model_args["index"] = (None, None)
+            if warm_steps <= i < cool_steps:
+                model_args["use_cache"] = True
+                model_args["index"] = selec_index
+            else:
+                model_args["use_cache"] = False
+                model_args["index"] = (None, None)
             
-            output = is_model(z_in, t, **model_args)
+            # model_args["use_cache"] = False
+            # model_args["index"] = (None, None)
+            
+            output = si_model(z_in, t, **model_args)
 
             pred = output.chunk(2, dim=1)[0]
             pred_cond, pred_uncond = pred.chunk(2, dim=0)
             v_pred = pred_uncond + guidance_scale * (pred_cond - pred_uncond)
 
-            # if warm_steps <= i < cool_steps:
-            #     selec_index = is_model.select_index(v_pred, self.sparsity)
-            # else:
-            #     selec_index = (None, None)
-            selec_index = is_model.select_index(v_pred, self.sparsity)
-
             # update z
             dt = timesteps[i] - timesteps[i + 1] if i < len(timesteps) - 1 else timesteps[i]
             dt = dt / self.num_timesteps
             #v_pred = is_model.mask_noise(v_pred * dt[:, None, None, None, None], selec_index[1])
+
+            # save_list.append((v_pred, dt))
+
             v_pred = v_pred * dt[:, None, None, None, None]
-            selec_mask = is_model.mask_noise(v_pred, selec_index[1])
-            save_list.append((v_pred, selec_mask))
-            print(v_pred.shape, selec_mask.shape)
-            exit(0)
+            selec_index = si_model.noise_update_2(v_pred, self.sparsity, (warm_steps <= i) and (i < cool_steps), k=i)
+
+            
             z = z + v_pred
 
             if mask is not None:
                 z = torch.where(mask_t_upper[:, None, :, None, None], z, x0)
 
-        save_obj(save_list, "./exp/", f"sparse_{self.sparsity}")
-        exit(0)
+        # save_obj(save_list, "./exp/", f"sparse_{self.sparsity}")
+        # exit(0)
         return z

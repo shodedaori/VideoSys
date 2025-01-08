@@ -616,6 +616,9 @@ class OpenSoraSI(nn.Module):
         self.cache = None
         self.patch_gather = None
         self.scale_weight = None
+        self.acc_scale = None
+        self.total_scale = None
+        self.epsilon_coe = 1.2
 
     def init_generate_cache(self, x):
         B = x.size(0)
@@ -652,6 +655,10 @@ class OpenSoraSI(nn.Module):
         # init scale weight
         self.scale_weight = torch.ones(T * S, dtype=torch.float32, device=x.device)
 
+        # init scale storage
+        self.total_scale = torch.zeros(T * S, dtype=torch.float32, device=x.device)
+        self.acc_scale = torch.zeros_like(self.total_scale)
+
     def generate_check(self, x):
         B = x.size(0)
         T, H, W = self.model.get_dynamic_size(x)
@@ -660,7 +667,10 @@ class OpenSoraSI(nn.Module):
         assert self.shape == (B, T, S), "The shape of x is not the same as the cache shape"
     
     @torch.no_grad()
-    def select_index(self, x, prop, scale=1.2):
+    def noise_update_1(self, x, prop, sparse_flag=False, scale=1.2, **kwargs):
+        if not sparse_flag:
+            return (None, None)
+
         # x: [B, C, T, H, W]
         B, T, S = self.shape
         assert x.size(0) == 1, "The batch size should be 1 now"
@@ -679,9 +689,74 @@ class OpenSoraSI(nn.Module):
 
         # update scale weight
         self.scale_weight = self.scale_weight * scale
-        self.scale_weight.index_fill_(0, spatial_index, 1.0)
+        self.scale_weight.index_fill_(0, spatial_index, 0.8)
 
         return (temporal_index, spatial_index)
+    
+    @torch.no_grad()
+    def noise_update_2(self, x, prop, sparse_flag=False, k=1, **kwargs):
+        # x: [B, C, T, H, W]
+        B, T, S = self.shape
+        assert x.size(0) == 1, "The batch size should be 1 now"
+
+        y = torch.std(x, dim=1).unsqueeze(1)  # [B, 1, T, H, W]
+        y = self.patch_gather(y).view(-1)  # [B, N, 1]
+
+        self.total_scale += y
+
+        if not sparse_flag:
+            self.acc_scale.fill_(0.0)
+            return (None, None)
+
+        epsilon = self.epsilon_coe * torch.max(self.total_scale) / k
+        # print("epsilon: ", epsilon, torch.max(self.total_scale), k)
+        self.acc_scale += y
+        mask = self.acc_scale >= epsilon
+        self.acc_scale = torch.where(mask, 0.0, self.acc_scale)
+        spatial_index = torch.nonzero(mask).view(-1)
+
+        pos_b = spatial_index % S
+        pos_a = spatial_index // S
+        temporal_index = pos_b * T + pos_a
+
+        sparsity = spatial_index.size(0) / y.size(0)
+        print("sparsity:", sparsity)
+
+        return (temporal_index, spatial_index)
+    
+    @torch.no_grad()
+    def noise_update_3(self, x, prop, sparse_flag=False, **kwargs):
+        # x: [B, C, T, H, W]
+        B, T, S = self.shape
+        assert x.size(0) == 1, "The batch size should be 1 now"
+
+        y = torch.std(x, dim=1).unsqueeze(1)  # [B, 1, T, H, W]
+        y = self.patch_gather(y).view(-1)  # [B, N, 1]
+
+        # self.total_scale += y
+
+        if not sparse_flag:
+            self.acc_scale.fill_(0.0)
+            return (None, None)
+
+        # epsilon = self.epsilon_coe * torch.max(self.total_scale) / k
+        # print("epsilon: ", epsilon, torch.max(self.total_scale), k)
+        self.acc_scale += y
+        # mask = self.acc_scale >= epsilon
+        # self.acc_scale = torch.where(mask, 0.0, self.acc_scale)
+        # spatial_index = torch.nonzero(mask).view(-1)
+
+        n_tokens = math.ceil(T * S * prop)
+        _, spatial_index = torch.topk(self.acc_scale, n_tokens, largest=True)
+        self.acc_scale.index_fill_(0, spatial_index, 0.0)
+
+
+        pos_b = spatial_index % S
+        pos_a = spatial_index // S
+        temporal_index = pos_b * T + pos_a
+
+        return (temporal_index, spatial_index)
+
     
     @torch.no_grad()
     def mask_noise(self, noise, spatial_index=None):
