@@ -610,15 +610,23 @@ class STDiT3C(PreTrainedModel):
 
 
 class OpenSoraSI(nn.Module):
-    def __init__(self, model: STDiT3C):
+    def __init__(self, model: STDiT3C, filter_method="constant"):
         super().__init__()
         self.model = model
         self.cache = None
         self.patch_gather = None
-        self.scale_weight = None
         self.acc_scale = None
         self.total_scale = None
-        self.epsilon_coe = 1.2
+        
+        # init filter method
+        if filter_method == "constant":
+            self.filer_method_int = 0
+        elif filter_method == "threshold":
+            self.filer_method_int = 1
+        elif filter_method == "weighted_threshold":
+            self.filer_method_int = 2
+        else:
+            raise NotImplementedError("This filter method is not implemented")
 
     def init_generate_cache(self, x):
         B = x.size(0)
@@ -652,9 +660,6 @@ class OpenSoraSI(nn.Module):
         self.patch_gather = PatchGather(patch_size=self.model.x_embedder.patch_size)
         self.patch_gather = self.patch_gather.to(dtype=torch.float32, device=x.device)
 
-        # init scale weight
-        self.scale_weight = torch.ones(T * S, dtype=torch.float32, device=x.device)
-
         # init scale storage
         self.total_scale = torch.zeros(T * S, dtype=torch.float32, device=x.device)
         self.acc_scale = torch.zeros_like(self.total_scale)
@@ -667,34 +672,7 @@ class OpenSoraSI(nn.Module):
         assert self.shape == (B, T, S), "The shape of x is not the same as the cache shape"
     
     @torch.no_grad()
-    def noise_update_1(self, x, prop, sparse_flag=False, scale=1.2, **kwargs):
-        if not sparse_flag:
-            return (None, None)
-
-        # x: [B, C, T, H, W]
-        B, T, S = self.shape
-        assert x.size(0) == 1, "The batch size should be 1 now"
-        n_tokens = math.ceil(T * S * prop)
-        
-        y = torch.std(x, dim=1).unsqueeze(1)  # [B, 1, T, H, W]
-        y = self.patch_gather(y)  # [B, N, 1]
-
-        assert y.size(1) == T * S, "The number of patches is not the same as the cache shape"
-        val = y.view(-1) * self.scale_weight
-        
-        _, spatial_index = torch.topk(val, n_tokens, largest=True)
-        pos_b = spatial_index % S
-        pos_a = spatial_index // S
-        temporal_index = pos_b * T + pos_a
-
-        # update scale weight
-        self.scale_weight = self.scale_weight * scale
-        self.scale_weight.index_fill_(0, spatial_index, 0.8)
-
-        return (temporal_index, spatial_index)
-    
-    @torch.no_grad()
-    def noise_update_2(self, x, prop, sparse_flag=False, k=1, **kwargs):
+    def threshold_filter(self, x, coef, sparse_flag=False, k=1, **kwargs):
         # x: [B, C, T, H, W]
         B, T, S = self.shape
         assert x.size(0) == 1, "The batch size should be 1 now"
@@ -708,7 +686,7 @@ class OpenSoraSI(nn.Module):
             self.acc_scale.fill_(0.0)
             return (None, None)
 
-        epsilon = self.epsilon_coe * torch.max(self.total_scale) / k
+        epsilon = coef * torch.max(self.total_scale) / k
         # print("epsilon: ", epsilon, torch.max(self.total_scale), k)
         self.acc_scale += y
         mask = self.acc_scale >= epsilon
@@ -719,13 +697,13 @@ class OpenSoraSI(nn.Module):
         pos_a = spatial_index // S
         temporal_index = pos_b * T + pos_a
 
-        sparsity = spatial_index.size(0) / y.size(0)
-        print("sparsity:", sparsity)
+        # sparsity = spatial_index.size(0) / y.size(0)
+        # print("sparsity:", sparsity)
 
         return (temporal_index, spatial_index)
     
     @torch.no_grad()
-    def noise_update_3(self, x, prop, sparse_flag=False, **kwargs):
+    def constant_filter(self, x, prop, sparse_flag=False, **kwargs):
         # x: [B, C, T, H, W]
         B, T, S = self.shape
         assert x.size(0) == 1, "The batch size should be 1 now"
@@ -733,30 +711,32 @@ class OpenSoraSI(nn.Module):
         y = torch.std(x, dim=1).unsqueeze(1)  # [B, 1, T, H, W]
         y = self.patch_gather(y).view(-1)  # [B, N, 1]
 
-        # self.total_scale += y
-
         if not sparse_flag:
             self.acc_scale.fill_(0.0)
             return (None, None)
 
-        # epsilon = self.epsilon_coe * torch.max(self.total_scale) / k
-        # print("epsilon: ", epsilon, torch.max(self.total_scale), k)
         self.acc_scale += y
-        # mask = self.acc_scale >= epsilon
-        # self.acc_scale = torch.where(mask, 0.0, self.acc_scale)
-        # spatial_index = torch.nonzero(mask).view(-1)
-
         n_tokens = math.ceil(T * S * prop)
         _, spatial_index = torch.topk(self.acc_scale, n_tokens, largest=True)
         self.acc_scale.index_fill_(0, spatial_index, 0.0)
-
 
         pos_b = spatial_index % S
         pos_a = spatial_index // S
         temporal_index = pos_b * T + pos_a
 
         return (temporal_index, spatial_index)
-
+    
+    def index_filter(self, v_pred, dt, coef, **kwargs):
+        if self.filer_method_int == 0:
+            v_pred = v_pred * dt[:, None, None, None, None]  # weighted
+            return self.constant_filter(v_pred, coef, **kwargs)
+        elif self.filer_method_int == 1:
+            return self.threshold_filter(v_pred, coef, **kwargs)
+        elif self.filer_method_int == 2:
+            v_pred = v_pred * dt[:, None, None, None, None]  # weighted
+            return self.threshold_filter(v_pred, coef, **kwargs)
+        else:
+            raise NotImplementedError("This filter method is not implemented")
     
     @torch.no_grad()
     def mask_noise(self, noise, spatial_index=None):

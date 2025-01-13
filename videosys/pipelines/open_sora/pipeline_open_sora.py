@@ -144,8 +144,9 @@ class OpenSoraConfig:
         # ======== pab ========
         enable_pab: bool = False,
         pab_config: PABConfig = OpenSoraPABConfig(),
-        use_si: bool = False,
-        si_sparsity: float = 0.7,
+        enable_ti: bool = False,
+        ti_coef: float = 1.0,
+        ti_filter: str = "constant",
     ):
         self.pipeline_cls = OpenSoraPipeline
         self.transformer = transformer
@@ -165,9 +166,10 @@ class OpenSoraConfig:
         # ======== pab ========
         self.enable_pab = enable_pab
         self.pab_config = pab_config
-        # ======== si ========
-        self.use_si = use_si
-        self.si_sparsity = si_sparsity
+        # ======== ti ========
+        self.enable_ti = enable_ti
+        self.ti_coef = ti_coef
+        self.ti_filter = ti_filter
 
 
 class OpenSoraPipeline(VideoSysPipeline):
@@ -227,7 +229,7 @@ class OpenSoraPipeline(VideoSysPipeline):
             ).to(dtype)
 
         if transformer is None:
-            if config.use_si:
+            if config.enable_ti:
                 transformer = STDiT3C.from_pretrained(config.transformer, enable_flash_attn=config.enable_flash_attn).to(
                     dtype
                 )
@@ -237,9 +239,10 @@ class OpenSoraPipeline(VideoSysPipeline):
                 )
         
         if scheduler is None:
-            if config.use_si:
+            if config.enable_ti:
                 scheduler = SIRFLOW(
-                    config.si_sparsity, use_timestep_transform=True, num_sampling_steps=config.num_sampling_steps, cfg_scale=config.cfg_scale
+                    config.ti_coef, config.ti_filter, 
+                    use_timestep_transform=True, num_sampling_steps=config.num_sampling_steps, cfg_scale=config.cfg_scale
                 )
             else:
                 scheduler = RFLOW(
