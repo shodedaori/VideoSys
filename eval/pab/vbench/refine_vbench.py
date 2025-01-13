@@ -1,6 +1,6 @@
 import json
 
-num_samples_per_type = 4
+num_samples_per_type = 16
 
 
 def get_small_vbench():
@@ -30,7 +30,7 @@ def get_small_vbench():
     print(f"The full vbench has {total_count} types")
     print(f"Writing {len(small_bench)} samples to small_vbench.json")
 
-    with open("small_vbench.json", "w") as f:
+    with open("middle_vbench.json", "w") as f:
         json.dump(small_bench, f, indent=4)
 
 
