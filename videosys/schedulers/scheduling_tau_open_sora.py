@@ -3,9 +3,9 @@ import torch
 import torch.distributed as dist
 from tqdm import tqdm
 
-from videosys.models.transformers.cache_model import OpenSoraSI
+from videosys.models.transformers.os_tau_model import OpenSoraSI
 from videosys.schedulers.scheduling_rflow_open_sora import RFLOW, timestep_transform
-from tests.fast_infer.utils import save_obj
+from videosys.utils.utils import save_obj
 
 
 class SIRFLOW(RFLOW):
@@ -13,8 +13,9 @@ class SIRFLOW(RFLOW):
         self.coef = coef
         self.filter = filter
         self.warm_prop = 1 / 3
+        self.verbose = False
 
-        if filter == 'constant' and coef >= 1.0: # no sparse in the sampling
+        if coef >= 1.0: # no sparse in the sampling
             self.warm_prop = 1.0
         
         print(f"Using Tokenwise Inference: coef {coef}, filter {filter}, warm prop {self.warm_prop}")
@@ -53,7 +54,11 @@ class SIRFLOW(RFLOW):
 
         progress_wrap = tqdm if progress and dist.get_rank() == 0 else (lambda x: x)
 
-        warm_steps = math.ceil(self.num_sampling_steps * self.warm_prop)
+        if self.warm_prop >= 1.0:
+            warm_steps = self.num_sampling_steps
+        else:
+            warm_steps = min(math.ceil(self.num_sampling_steps * self.warm_prop), 10)
+
         print("Full update warmup steps:", warm_steps)
         si_model = OpenSoraSI(model, self.filter)
         si_model.init_generate_cache(z)
@@ -91,6 +96,9 @@ class SIRFLOW(RFLOW):
             else:
                 model_args["use_cache"] = False
                 model_args["index"] = (None, None)
+
+            if self.verbose:
+                update_mask = si_model.get_update_mask(z, model_args['index'][1])
             
             output = si_model(z_in, t, **model_args)
 
@@ -101,14 +109,18 @@ class SIRFLOW(RFLOW):
             # update z
             dt = timesteps[i] - timesteps[i + 1] if i < len(timesteps) - 1 else timesteps[i]
             dt = dt / self.num_timesteps
-            selec_index = si_model.index_filter(v_pred, dt, self.coef, sparse_flag=(warm_steps<=i), k=i)
+            selec_index = si_model.index_filter(v_pred, dt, self.coef, sparse_flag=(warm_steps-1<=i<self.num_sampling_steps-1), k=i)
 
             v_pred = v_pred * dt[:, None, None, None, None]
             z = z + v_pred
 
+            if self.verbose:
+                save_list.append((v_pred, z, update_mask))
+
             if mask is not None:
                 z = torch.where(mask_t_upper[:, None, :, None, None], z, x0)
 
-        # save_obj(save_list, "./exp/", f"sparse_{self.sparsity}")
+        if self.verbose:
+            save_obj(save_list, "./exp/", f"coef_{self.coef}_filter_{self.filter}")
         # exit(0)
         return z

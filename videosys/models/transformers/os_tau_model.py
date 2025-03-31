@@ -32,7 +32,8 @@ from videosys.models.modules.embeddings import (
     TimestepEmbedder,
 )
 from videosys.utils.utils import batch_func
-from videosys.models.modules.cache_attn import QKVCache, OpenSoraAttention, OpenSoraMultiHeadCrossAttention, PatchGather
+from videosys.models.modules.os_tau_attn import QKVCache, OpenSoraAttention, OpenSoraMultiHeadCrossAttention
+from videosys.models.transformers.utils import PatchGather, ShorttermWindow
 
 
 def t2i_modulate(x, shift, scale):
@@ -610,7 +611,7 @@ class STDiT3C(PreTrainedModel):
 
 
 class OpenSoraSI(nn.Module):
-    def __init__(self, model: STDiT3C, filter_method="constant"):
+    def __init__(self, model: STDiT3C, filter_method="random_token"):
         super().__init__()
         self.model = model
         self.cache = None
@@ -619,12 +620,14 @@ class OpenSoraSI(nn.Module):
         self.total_scale = None
         
         # init filter method
-        if filter_method == "constant":
+        if filter_method == "random_token":
             self.filer_method_int = 0
-        elif filter_method == "threshold":
+        elif filter_method == "random_frame":
             self.filer_method_int = 1
-        elif filter_method == "weighted_threshold":
+        elif filter_method == "random_channel":
             self.filer_method_int = 2
+        elif filter_method == "shortterm":
+            self.filer_method_int = 3
         else:
             raise NotImplementedError("This filter method is not implemented")
 
@@ -660,9 +663,16 @@ class OpenSoraSI(nn.Module):
         self.patch_gather = PatchGather(patch_size=self.model.x_embedder.patch_size)
         self.patch_gather = self.patch_gather.to(dtype=torch.float32, device=x.device)
 
-        # init scale storage
-        self.total_scale = torch.zeros(T * S, dtype=torch.float32, device=x.device)
-        self.acc_scale = torch.zeros_like(self.total_scale)
+        # init dual filter counter
+        self.filter_counter = 0
+
+        # init short-term window
+        if self.filer_method_int == 3:
+            self.window_length = 4
+            self.window = ShorttermWindow(x, self.window_length)
+            self.block_size = 8
+            self.block_gather = PatchGather(patch_size=(1, self.block_size, self.block_size))
+            self.block_gather = self.block_gather.to(dtype=torch.float32, device=x.device)
 
     def generate_check(self, x):
         B = x.size(0)
@@ -670,55 +680,124 @@ class OpenSoraSI(nn.Module):
         S = H * W
 
         assert self.shape == (B, T, S), "The shape of x is not the same as the cache shape"
-    
+
     @torch.no_grad()
-    def threshold_filter(self, x, coef, sparse_flag=False, k=1, **kwargs):
+    def random_token_filter(self, x, prop, sparse_flag=False, **kwargs):
         # x: [B, C, T, H, W]
         B, T, S = self.shape
         assert x.size(0) == 1, "The batch size should be 1 now"
 
-        y = torch.std(x, dim=1).unsqueeze(1)  # [B, 1, T, H, W]
-        y = self.patch_gather(y).view(-1)  # [B, N, 1]
-
-        self.total_scale += y
-
         if not sparse_flag:
-            self.acc_scale.fill_(0.0)
             return (None, None)
-
-        epsilon = coef * torch.max(self.total_scale) / k
-        # print("epsilon: ", epsilon, torch.max(self.total_scale), k)
-        self.acc_scale += y
-        mask = self.acc_scale >= epsilon
-        self.acc_scale = torch.where(mask, 0.0, self.acc_scale)
-        spatial_index = torch.nonzero(mask).view(-1)
+        
+        n_tokens = math.ceil(T * S * prop)
+        spatial_index = torch.randperm(T * S, device=x.device)[:n_tokens]
 
         pos_b = spatial_index % S
         pos_a = spatial_index // S
         temporal_index = pos_b * T + pos_a
 
-        # sparsity = spatial_index.size(0) / y.size(0)
-        # print("sparsity:", sparsity)
-
         return (temporal_index, spatial_index)
     
     @torch.no_grad()
-    def constant_filter(self, x, prop, sparse_flag=False, **kwargs):
+    def random_frame_filter(self, x, prop, sparse_flag=False, **kwargs):
         # x: [B, C, T, H, W]
         B, T, S = self.shape
         assert x.size(0) == 1, "The batch size should be 1 now"
 
-        y = torch.std(x, dim=1).unsqueeze(1)  # [B, 1, T, H, W]
-        y = self.patch_gather(y).view(-1)  # [B, N, 1]
+        if not sparse_flag:
+            return (None, None)
+        
+        n_tokens = math.ceil(T * prop)
+        t_index = torch.randperm(T, device=x.device)[:n_tokens]
+
+        i = torch.arange(S, device=x.device)  # [S]
+        spatial_index = i[:, None] + t_index * S  # [S, n_tokens]
+        spatial_index = spatial_index.view(-1)
+
+        pos_b = spatial_index % S
+        pos_a = spatial_index // S
+        temporal_index = pos_b * T + pos_a
+
+        return (temporal_index, spatial_index)
+    
+    @torch.no_grad()
+    def random_channel_filter(self, x, prop, sparse_flag=False, **kwargs):
+        # x: [B, C, T, H, W]
+        B, T, S = self.shape
+        assert x.size(0) == 1, "The batch size should be 1 now"
 
         if not sparse_flag:
-            self.acc_scale.fill_(0.0)
             return (None, None)
+        
+        n_tokens = math.ceil(S * prop)
+        s_index = torch.randperm(S, device=x.device)[:n_tokens]
 
-        self.acc_scale += y
-        n_tokens = math.ceil(T * S * prop)
-        _, spatial_index = torch.topk(self.acc_scale, n_tokens, largest=True)
-        self.acc_scale.index_fill_(0, spatial_index, 0.0)
+        j = torch.arange(T, device=x.device) * S  # [T]
+        spatial_index = s_index[:, None] + j  # [n_tokens, T]
+        spatial_index = spatial_index.view(-1)
+
+        pos_b = spatial_index % S
+        pos_a = spatial_index // S
+        temporal_index = pos_b * T + pos_a
+
+        return (temporal_index, spatial_index)     
+    
+    @torch.no_grad()
+    def shortterm_filter(self, x, prop, sparse_flag=False, **kwargs):
+        # x: [B, C, To, Ho, Wo]
+        B, T, S = self.shape
+        assert x.size(0) == 1, "The batch size should be 1 now"
+
+        # update the short-term window
+        self.window.insert(x)
+
+        if not sparse_flag or self.filter_counter >= self.window_length - 1:
+            # reset the counter, do not filter
+            self.filter_counter = 0
+            return (None, None)
+        
+        self.filter_counter += 1
+
+        y = self.window.get_std_sqr()  # [B, C, To, Ho, Wo]
+
+        if self.filter_counter == 3:
+            y = torch.sqrt(y)
+            prev_y = y[:, :, :-1, :, :]  # [B, C, To-1, Ho, Wo]
+            next_y = y[:, :, 1:, :, :]   # [B, C, To-1, Ho, Wo]
+            y = (torch.norm(next_y - prev_y, dim=1) ** 2).unsqueeze(1)  # [B, 1, To-1, Ho, Wo]
+            
+            # y_mean = torch.mean(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
+            # y = torch.norm(y - y_mean, dim=1, keepdim=True) ** 2  # [B, 1, To, Ho, Wo]
+            
+            # y = self.patch_gather(y, flatten_flag=False)  # [B, 1, T, H, W]
+            # y = self.block_gather(y) # [B, 1, T, Hn, Wn]
+
+
+            y = torch.mean(y, dim=1).view(-1) # [S]
+
+            n_tokens = math.ceil(S * prop)
+            _, s_index = torch.topk(y, n_tokens, largest=True)
+
+            j = torch.arange(T, device=y.device) * S  # [T]
+            spatial_index = s_index[:, None] + j  # [n_tokens, T]
+            spatial_index = spatial_index.view(-1)
+        elif self.filter_counter == 4:
+            y = torch.sum(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
+            y = self.patch_gather(y).view(-1)  # [N]
+            n_tokens = math.ceil(T * S * prop)
+            _, spatial_index = torch.topk(y, n_tokens, largest=True)
+        else:
+            y = torch.sum(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
+            y = self.patch_gather(y).view(T, S)  # [T, S]
+            y = torch.sum(y, dim=-1)  # [T]
+            n_tokens = math.ceil(T * prop)
+            # _, t_index = torch.topk(y, n_tokens, largest=True)
+            t_index = torch.randperm(T, device=y.device)[:n_tokens]
+
+            i = torch.arange(S, device=y.device)  # [S]
+            spatial_index = i[:, None] + t_index * S  # [S, n_tokens]
+            spatial_index = spatial_index.view(-1)
 
         pos_b = spatial_index % S
         pos_a = spatial_index // S
@@ -729,27 +808,33 @@ class OpenSoraSI(nn.Module):
     def index_filter(self, v_pred, dt, coef, **kwargs):
         if self.filer_method_int == 0:
             v_pred = v_pred * dt[:, None, None, None, None]  # weighted
-            return self.constant_filter(v_pred, coef, **kwargs)
+            return self.random_token_filter(v_pred, coef, **kwargs)
         elif self.filer_method_int == 1:
-            return self.threshold_filter(v_pred, coef, **kwargs)
+            v_pred = v_pred * dt[:, None, None, None, None]  # weighted
+            return self.random_frame_filter(v_pred, coef, **kwargs)
         elif self.filer_method_int == 2:
             v_pred = v_pred * dt[:, None, None, None, None]  # weighted
-            return self.threshold_filter(v_pred, coef, **kwargs)
+            return self.random_channel_filter(v_pred, coef, **kwargs)
+        elif self.filer_method_int == 3:
+            v_pred = v_pred * dt[:, None, None, None, None]  # weighted
+            return self.shortterm_filter(v_pred, coef, **kwargs)
         else:
             raise NotImplementedError("This filter method is not implemented")
     
     @torch.no_grad()
-    def mask_noise(self, noise, spatial_index=None):
-        if spatial_index is None:
-            return noise
-        B = noise.size(0)
+    def get_update_mask(self, z, spatial_index=None):
+        B = z.size(0)
         assert B == 1, "The batch size should be 1 now"
+        
+        _, _, T_n, H_n, W_n = z.size()
+        if spatial_index is None:
+            mask = torch.ones((B, 1, T_n, H_n, W_n), dtype=torch.int32)
+            return mask
 
         _, T, S = self.shape
         H, W = self.HW
         T_p, H_p, W_p = self.patch_gather.patch_size
-        _, _, T_n, H_n, W_n = noise.size()
-        mask = torch.zeros(B, T * S, dtype=noise.dtype, device=noise.device)
+        mask = torch.zeros(B, T * S, dtype=torch.int32, device=z.device)
         mask.index_fill_(1, spatial_index, 1)
 
         mask = mask.view(B, T, 1, H, 1, W, 1)
@@ -758,7 +843,6 @@ class OpenSoraSI(nn.Module):
         mask = mask[:, :T_n, :H_n, :W_n]
         mask = mask.reshape(B, 1, T_n, H_n, W_n)
         return mask
-
 
     @torch.no_grad()
     # ADD use cache parameter

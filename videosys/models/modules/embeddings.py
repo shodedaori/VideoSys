@@ -410,3 +410,28 @@ def apply_rotary_emb(
         x_out = torch.view_as_real(x_rotated * freqs_cis).flatten(3)
 
         return x_out.type_as(x)
+
+
+def apply_index_rotary_emb(
+    x: torch.Tensor,
+    freqs_cis: Union[torch.Tensor, Tuple[torch.Tensor]],
+    use_real: bool = True,
+    use_real_unbind_dim: int = -1,
+    token_index: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    seq_length = freqs_cis[0].shape[0]
+    cur_length = x.shape[-2]
+
+    x_full = x
+    if cur_length < seq_length:
+        assert token_index is not None, "Token index must be provided for partial sequence."
+        x_full = torch.zeros(x.shape[:-2] + (seq_length, x.shape[-1]), device=x.device, dtype=x.dtype)
+        x_full.index_copy_(-2, token_index, x)
+    
+    x_rotated = apply_rotary_emb(x_full, freqs_cis, use_real, use_real_unbind_dim)
+    if cur_length < seq_length:
+        x_rotated = x_rotated.index_select(-2, token_index)
+    
+    x.copy_(x_rotated)
+
+    return x

@@ -6,8 +6,8 @@ import torch.distributed as dist
 
 from videosys.core.parallel_mgr import ParallelManager, initialize
 from videosys.models.transformers.open_sora_transformer_3d import STDiT3Config, STDiT3  
-from videosys.models.transformers.cache_model import STDiT3C, OpenSoraSI
-from videosys.models.modules.cache_attn import QKVCache
+from videosys.models.transformers.os_tau_model import STDiT3C, OpenSoraSI
+from videosys.models.modules.os_tau_attn import QKVCache
 from videosys.utils.test import empty_cache
 
 from tests.fast_infer.utils import tensor_check, init_env
@@ -42,7 +42,7 @@ class TestModel(nn.Module):
 @torch.no_grad()
 def test_block(device):
     from videosys.models.transformers.open_sora_transformer_3d import STDiT3Block
-    from videosys.models.transformers.cache_model import STDiT3BlockC
+    from videosys.models.transformers.os_tau_model import STDiT3BlockC
     depth = 4
 
     base_module = TestModel(STDiT3Block, 128, 8, depth).to(device); base_module.eval()

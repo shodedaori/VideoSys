@@ -166,3 +166,7 @@ samples
 cache_dir
 test_outputs
 datasets
+
+eval/pab/res
+*.mp4
+*.pkl

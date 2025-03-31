@@ -3,9 +3,9 @@ import pytest
 import torch
 
 from videosys.models.modules.attentions import OpenSoraAttention, OpenSoraMultiHeadCrossAttention
-from videosys.models.modules.cache_attn import OpenSoraAttention as CacheAttention
-from videosys.models.modules.cache_attn import OpenSoraMultiHeadCrossAttention as CacheCrossAttention
-from videosys.models.modules.cache_attn import QKVCache, PatchGather
+from videosys.models.modules.os_tau_attn import OpenSoraAttention as CacheAttention
+from videosys.models.modules.os_tau_attn import OpenSoraMultiHeadCrossAttention as CacheCrossAttention
+from videosys.models.modules.os_tau_attn import QKVCache, PatchGather
 from videosys.utils.test import empty_cache
 
 from tests.fast_infer.utils import get_compute_device, tensor_check

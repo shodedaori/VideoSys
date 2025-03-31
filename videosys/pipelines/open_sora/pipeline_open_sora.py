@@ -16,9 +16,9 @@ from videosys.core.pab_mgr import PABConfig, set_pab_manager, update_steps
 from videosys.core.pipeline import VideoSysPipeline, VideoSysPipelineOutput
 from videosys.models.autoencoders.autoencoder_kl_open_sora import OpenSoraVAE_V1_2
 from videosys.models.transformers.open_sora_transformer_3d import STDiT3
-from videosys.models.transformers.cache_model import STDiT3C
+from videosys.models.transformers.os_tau_model import STDiT3C
 from videosys.schedulers.scheduling_rflow_open_sora import RFLOW
-from videosys.schedulers.scheduling_si_open_sora import SIRFLOW
+from videosys.schedulers.scheduling_tau_open_sora import SIRFLOW
 from videosys.utils.utils import save_video, set_seed
 
 from .data_process import get_image_size, get_num_frames, prepare_multi_resolution_info, read_from_path
@@ -146,7 +146,7 @@ class OpenSoraConfig:
         pab_config: PABConfig = OpenSoraPABConfig(),
         enable_ti: bool = False,
         ti_coef: float = 1.0,
-        ti_filter: str = "constant",
+        ti_filter: str = "random_token",
     ):
         self.pipeline_cls = OpenSoraPipeline
         self.transformer = transformer
@@ -465,6 +465,7 @@ class OpenSoraPipeline(VideoSysPipeline):
         align: int = 5,
         condition_frame_edit: float = 0.0,
         return_dict: bool = True,
+        blur3d: bool = False,
         verbose: bool = True,
     ) -> Union[VideoSysPipelineOutput, Tuple]:
         """
@@ -666,7 +667,20 @@ class OpenSoraPipeline(VideoSysPipeline):
 
         low, high = -1, 1
         video.clamp_(min=low, max=high)
-        video.sub_(low).div_(max(high - low, 1e-5))
+        video.sub_(low).div_(max(high - low, 1e-5))  # [B, C, T, H, W]
+
+        if blur3d:
+            from videosys.models.modules.utils import Gaussian3d
+            g = Gaussian3d(video.size(1), 3).to(dtype=video.dtype, device=video.device)
+            video = g(video)
+            print("3D blur applied", video.shape)
+
+        #from torchvision.transforms import v2
+        #video = video.permute(0, 2, 1, 3, 4).contiguous()  # [B, T, C, H, W]
+        #blurrer = v2.GaussianBlur(kernel_size=(3, 3), sigma=1)
+        #video = blurrer(video)
+        #video = video.permute(0, 2, 1, 3, 4).contiguous()  # [B, C, T, H, W]
+
         video = video.mul(255).add_(0.5).clamp_(0, 255).permute(0, 2, 3, 4, 1).to("cpu", torch.uint8)
 
         # Offload all models

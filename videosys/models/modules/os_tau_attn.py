@@ -284,39 +284,3 @@ class _SeqLenInfo:
             seqstart_py=seqstart_py,
         )
     
-
-class PatchGather(nn.Module):
-    """Add all std scale in one patch.
-
-    Args:
-        patch_size (int): Patch token size. Default: (2,4,4).
-    """
-
-    def __init__(
-        self,
-        patch_size=(2, 4, 4),
-    ):
-        super().__init__()
-        self.patch_size = patch_size
-        self.proj = nn.Conv3d(1, 1, kernel_size=patch_size, stride=patch_size)
-
-        self.proj.weight.requires_grad = False
-        self.proj.bias.requires_grad = False
-        nn.init.constant_(self.proj.weight, 1.0)
-        nn.init.constant_(self.proj.bias, 0.0)
-
-    def forward(self, x):
-        """Forward function."""
-        # padding
-        _, _, D, H, W = x.size()
-        if W % self.patch_size[2] != 0:
-            x = F.pad(x, (0, self.patch_size[2] - W % self.patch_size[2]))
-        if H % self.patch_size[1] != 0:
-            x = F.pad(x, (0, 0, 0, self.patch_size[1] - H % self.patch_size[1]))
-        if D % self.patch_size[0] != 0:
-            x = F.pad(x, (0, 0, 0, 0, 0, self.patch_size[0] - D % self.patch_size[0]))
-
-        x = self.proj(x)  # (B C T H W)
-        x = x.flatten(2).transpose(1, 2)  # BCTHW -> BNC
-        
-        return x

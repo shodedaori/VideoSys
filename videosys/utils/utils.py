@@ -3,6 +3,7 @@ import random
 
 import imageio
 import numpy as np
+import pickle
 import torch
 import torch.distributed as dist
 from omegaconf import DictConfig, ListConfig, OmegaConf
@@ -90,3 +91,10 @@ def save_video(video, output_path, fps):
         return
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     imageio.mimwrite(output_path, video, fps=fps)
+
+
+def save_obj(obj, path, name):
+    if not os.path.exists(os.path.dirname(path)):
+        os.makedirs(os.path.dirname(path))
+    with open(os.path.join(path, name + '.pkl'), 'wb') as f:
+        pickle.dump(obj, f)

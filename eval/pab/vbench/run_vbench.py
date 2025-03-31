@@ -3,7 +3,7 @@ import argparse
 import torch
 from vbench import VBench
 
-full_info_path = "./vbench/small_vbench.json"
+full_info_path = "./vbench/middle_vbench.json"
 
 dimensions = [
     "subject_consistency",
