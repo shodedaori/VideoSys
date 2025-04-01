@@ -411,6 +411,9 @@ class STDiT3C(PreTrainedModel):
         # parallel
         self.parallel_manager: ParallelManager = None
 
+        # cache
+        self.input_cache = None
+
     def enable_parallel(self, dp_size, sp_size, enable_cp):
         # update cfg parallel
         if enable_cp and sp_size % 2 == 0:
@@ -473,6 +476,13 @@ class STDiT3C(PreTrainedModel):
             y_lens = [y.shape[2]] * y.shape[0]
             y = y.squeeze(1).view(1, -1, self.hidden_size)
         return y, y_lens
+
+    def init_cache(self, B, T, S):
+        dtype = self.x_embedder.proj.weight.dtype
+        device = self.x_embedder.proj.weight.device
+        self.input_cache = QKVCache(
+            1, T, B, T * S, self.hidden_size, 
+            dtype=dtype, device=device)
 
     def forward(
         self, x, timestep, y, mask=None, x_mask=None, fps=None, height=None, width=None, 
@@ -570,6 +580,13 @@ class STDiT3C(PreTrainedModel):
         #     x = rearrange(x, "B T S C -> B (T S) C", T=T, S=S)
         #     x_mask = x_mask_org
 
+        if cache is not None:
+            if self.input_cache:
+                x = self.input_cache.update([x], spatial_index)[0]
+                x = x.view(self.input_cache.bs, -1, self.hidden_size)
+            else:
+                assert index[0] is None, "The index should be None for now"
+
         # === final layer ===
         x = self.final_layer(x, t, x_mask, t0, T, S)
         x = self.unpatchify(x, T, H, W, Tx, Hx, Wx)
@@ -646,7 +663,8 @@ class OpenSoraSI(nn.Module):
         device = self.model.x_embedder.proj.weight.device
 
         last_temporal_block = self.model.temporal_blocks[-1]
-        last_temporal_block.init_cache(B, T, S)
+        # last_temporal_block.init_cache(B, T, S)
+        self.model.init_cache(B, T, S)
 
         # init cache
         self.cache = []
@@ -770,7 +788,7 @@ class OpenSoraSI(nn.Module):
             # y_mean = torch.mean(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
             # y = torch.norm(y - y_mean, dim=1, keepdim=True) ** 2  # [B, 1, To, Ho, Wo]
             
-            # y = self.patch_gather(y, flatten_flag=False)  # [B, 1, T, H, W]
+            y = self.patch_gather(y, flatten_flag=False).squeeze(1)  # [B, 1, T, H, W]
             # y = self.block_gather(y) # [B, 1, T, Hn, Wn]
 
 

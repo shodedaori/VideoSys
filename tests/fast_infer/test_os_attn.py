@@ -5,7 +5,8 @@ import torch
 from videosys.models.modules.attentions import OpenSoraAttention, OpenSoraMultiHeadCrossAttention
 from videosys.models.modules.os_tau_attn import OpenSoraAttention as CacheAttention
 from videosys.models.modules.os_tau_attn import OpenSoraMultiHeadCrossAttention as CacheCrossAttention
-from videosys.models.modules.os_tau_attn import QKVCache, PatchGather
+from videosys.models.modules.os_tau_attn import QKVCache
+from videosys.models.transformers.utils import PatchGather
 from videosys.utils.test import empty_cache
 
 from tests.fast_infer.utils import get_compute_device, tensor_check
@@ -127,6 +128,6 @@ def test_patch_gather():
 
 
 if __name__ == "__main__":
-    test_self_attn(torch.device("cpu"))
+    # test_self_attn(torch.device("cpu"))
     test_cross_attn(torch.device('cuda'))
     test_patch_gather()
