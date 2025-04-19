@@ -76,15 +76,19 @@ def get_video_list(video_path):
     
 
 def main():
-    names, base_paths, eval_paths = generate_my_video_path_list('base')
-    print(names)
+    # names, base_paths, eval_paths = generate_my_video_path_list('base')
+    # print(names)
+    base_paths = ['./test_outputs/Close_up_of_grapes_o_base.mp4']
+    eval_paths = ['./test_outputs/Close_up_of_grapes_o_shortterm.mp4']
+    print(f"Base video path: {base_paths}")
+    print(f"Eval video path: {eval_paths}")
     base_video = get_video_list(base_paths)
     eval_video = get_video_list(eval_paths)
     
     assert base_video.shape == eval_video.shape
     print(f"The batch video shape is {base_video.shape}")
 
-    evaluator = fvd.cdfvd('videomae', ckpt_path=None, half_precision=True)
+    evaluator = fvd.cdfvd('videomae', ckpt_path=None, half_precision=False)
     score = evaluator.compute_fvd(base_video, eval_video)
     print(f"FVD score: {score}")
     
