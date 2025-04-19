@@ -8,8 +8,9 @@ from metric import fvd
 
 def generate_my_video_path_list(eval_name):
     # Get PWD of the dir where the script is located
-    current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    sample_path = os.path.join(current_dir, 'samples')
+    # current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    sample_path = os.path.join(current_dir, 'test_outputs')
 
     base_path = os.path.join(sample_path, 'base')
     eval_path = os.path.join(sample_path, eval_name)
@@ -75,7 +76,7 @@ def get_video_list(video_path):
     
 
 def main():
-    names, base_paths, eval_paths = generate_my_video_path_list('high')
+    names, base_paths, eval_paths = generate_my_video_path_list('base')
     print(names)
     base_video = get_video_list(base_paths)
     eval_video = get_video_list(eval_paths)
