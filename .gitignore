@@ -145,6 +145,7 @@ docs/.build
 
 # pytorch checkpoint
 *.pt
+*.pth
 
 # ignore any kernel build files
 .o
