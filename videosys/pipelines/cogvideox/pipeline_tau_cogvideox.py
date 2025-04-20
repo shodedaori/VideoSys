@@ -28,7 +28,7 @@ from videosys.schedulers.scheduling_tau_cogvideox import CogVideoXDDIMScheduler
 from videosys.utils.logging import logger
 from videosys.utils.utils import save_video, set_seed, save_obj
 
-from videosys.models.transformers.cog_tau_model import CogTauTransformer3DModel, CogVideoSAU
+from videosys.models.transformers.cog_tau_model import CogTauTransformer3DModel, CogVideoSTU
 
 
 class CogVideoXTauConfig:
@@ -666,7 +666,7 @@ class CogVideoXTauPipeline(VideoSysPipeline):
             else None
         )
 
-        tau_model = CogVideoSAU(self.transformer, self.filter)
+        tau_model = CogVideoSTU(self.transformer, self.filter)
         tau_model.init_generate_cache(latents, max_sequence_length)
         warm_steps = min(math.ceil(self._num_timesteps / 3), 10)
         token_index = None

@@ -6,7 +6,7 @@ import torch.distributed as dist
 
 from videosys.core.parallel_mgr import ParallelManager, initialize
 from videosys.models.transformers.cogvideox_transformer_3d import CogVideoXBlock, CogVideoXTransformer3DModel
-from videosys.models.transformers.cog_tau_model import KVCache, CogTauBlock, CogTauTransformer3DModel, CogVideoSAU
+from videosys.models.transformers.cog_tau_model import KVCache, CogTauBlock, CogTauTransformer3DModel, CogVideoSTU
 from videosys.utils.test import empty_cache
 
 from tests.fast_infer.utils import tensor_check, init_env
@@ -125,7 +125,7 @@ def test_model(device):
 
     tensor_check(z_base, z_cache)
     ############################################################
-    infer = CogVideoSAU(cache_model)
+    infer = CogVideoSTU(cache_model)
     infer.init_generate_cache(x_o, L)
 
     z_cache = infer(x, y, t, use_cache=True)[0]

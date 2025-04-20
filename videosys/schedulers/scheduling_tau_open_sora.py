@@ -3,7 +3,7 @@ import torch
 import torch.distributed as dist
 from tqdm import tqdm
 
-from videosys.models.transformers.os_tau_model import OpenSoraSI
+from videosys.models.transformers.os_tau_model import OpenSoraSTU
 from videosys.schedulers.scheduling_rflow_open_sora import RFLOW, timestep_transform
 from videosys.utils.utils import save_obj
 
@@ -60,7 +60,7 @@ class SIRFLOW(RFLOW):
             warm_steps = min(math.ceil(self.num_sampling_steps * self.warm_prop), 10)
 
         print("Full update warmup steps:", warm_steps)
-        si_model = OpenSoraSI(model, self.filter)
+        si_model = OpenSoraSTU(model, self.filter)
         si_model.init_generate_cache(z)
         selec_index = (None, None)
 

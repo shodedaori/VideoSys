@@ -6,7 +6,7 @@ import torch.distributed as dist
 
 from videosys.core.parallel_mgr import ParallelManager, initialize
 from videosys.models.transformers.open_sora_transformer_3d import STDiT3Config, STDiT3  
-from videosys.models.transformers.os_tau_model import STDiT3C, OpenSoraSI
+from videosys.models.transformers.os_tau_model import STDiT3C, OpenSoraSTU
 from videosys.models.modules.os_tau_attn import QKVCache
 from videosys.utils.test import empty_cache
 
@@ -148,7 +148,7 @@ def test_dit(device):
     tensor_check(z_base, z_cache)
     ############################################################
 
-    infer = OpenSoraSI(cache_model)
+    infer = OpenSoraSTU(cache_model)
     infer.init_generate_cache(x_o)
 
     z_cache = infer(x, t, y, mask, fps=fps, height=height, width=width)

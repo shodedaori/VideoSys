@@ -29,6 +29,7 @@ from videosys.core.parallel_mgr import ParallelManager
 from videosys.models.modules.embeddings import apply_rotary_emb, apply_index_rotary_emb
 from videosys.utils.utils import batch_func
 from videosys.models.transformers.utils import ShorttermWindow, PatchGather
+from videosys.models.transformers.stu_model import STUBase
 
 from ..modules.embeddings import CogVideoXPatchEmbed
 from ..modules.normalization import AdaLayerNorm, CogVideoXLayerNormZero
@@ -552,30 +553,11 @@ class CogTauTransformer3DModel(ModelMixin, ConfigMixin):
         return Transformer2DModelOutput(sample=output)
 
 
-class CogVideoSAU(nn.Module):
-    def __init__(self, model: CogTauTransformer3DModel, filter_method="constant"):
-        super().__init__()
-        self.model = model
+class CogVideoSTU(STUBase):
+    def __init__(self, model: CogTauTransformer3DModel, filter_method="random_token"):
+        super().__init__(model=model, filter_method=filter_method)
         self.cache = None
         self.patch_gather = None
-        self.acc_scale = None
-        self.total_scale = None
-        
-        # init filter method
-        if filter_method == "constant":
-            self.filer_method_int = 0
-        elif filter_method == "threshold":
-            self.filer_method_int = 1
-        elif filter_method == "weighted_threshold":
-            self.filer_method_int = 2
-        elif filter_method == "dual":
-            self.filer_method_int = 3
-        elif filter_method == "shortterm":
-            self.filer_method_int = 4
-        elif filter_method == "random":
-            self.filer_method_int = 5
-        else:
-            raise NotImplementedError("This filter method is not implemented")
 
     def init_generate_cache(self, x, text_len):
         B, T, C, Hp, Wp = x.shape
@@ -587,8 +569,13 @@ class CogVideoSAU(nn.Module):
         W = Wp // p
         S = H * W
 
-        self.shape = (B, T, C, Hp, Wp)
-        self.save_shape = (B, T, S)
+        self.spat_size = S
+        self.temp_size = T
+        self.height = H
+        self.width = W
+        self.frame_update_counter = torch.zeros(T, dtype=torch.int16, device=x.device)
+
+        self.sample_shape = (B, T, C, Hp, Wp)
 
         dtype = self.model.patch_embed.proj.weight.dtype
         device = self.model.patch_embed.proj.weight.device
@@ -623,214 +610,12 @@ class CogVideoSAU(nn.Module):
     def generate_check(self, x):
         assert self.shape == tuple(x.shape), "The shape of x is not the same as the cache shape"
     
-    @torch.no_grad()  # TODO: modify this
-    def threshold_filter(self, x, coef, sparse_flag=False, k=1, **kwargs):
-        raise NotImplementedError("This filter method is not implemented")
-        # x: [B, T, C, H, W]
-        B, T, S = self.shape
-        assert x.size(0) == 1, "The batch size should be 1 now"
+    def to_bcthw(self, x):
+        x = x.permute(0, 2, 1, 3, 4).contiguous()
+        return x
 
-        y = torch.std(x, dim=1).unsqueeze(1)  # [B, 1, T, H, W]
-        y = self.patch_gather(y).view(-1)  # [B, N, 1]
-
-        self.total_scale += y
-
-        if not sparse_flag:
-            self.acc_scale.fill_(0.0)
-            return (None, None)
-
-        epsilon = coef * torch.max(self.total_scale) / k
-        # print("epsilon: ", epsilon, torch.max(self.total_scale), k)
-        self.acc_scale += y
-        mask = self.acc_scale >= epsilon
-        self.acc_scale = torch.where(mask, 0.0, self.acc_scale)
-        spatial_index = torch.nonzero(mask).view(-1)
-
-        pos_b = spatial_index % S
-        pos_a = spatial_index // S
-        temporal_index = pos_b * T + pos_a
-
-        # sparsity = spatial_index.size(0) / y.size(0)
-        # print("sparsity:", sparsity)
-
-        return (temporal_index, spatial_index)
-    
-    @torch.no_grad()  # TODO: modify this
-    def constant_filter(self, x, prop, sparse_flag=False, **kwargs):
-        raise NotImplementedError("This filter method is not implemented")
-        # x: [B, C, T, H, W]
-        B, T, S = self.shape
-        assert x.size(0) == 1, "The batch size should be 1 now"
-
-        y = torch.std(x, dim=1).unsqueeze(1)  # [B, 1, T, H, W]
-        y = self.patch_gather(y).view(-1)  # [B, N, 1]
-
-        if not sparse_flag:
-            self.acc_scale.fill_(0.0)
-            return (None, None)
-
-        self.acc_scale += y
-        n_tokens = math.ceil(T * S * prop)
-        _, spatial_index = torch.topk(self.acc_scale, n_tokens, largest=True)
-        self.acc_scale.index_fill_(0, spatial_index, 0.0)
-
-        pos_b = spatial_index % S
-        pos_a = spatial_index // S
-        temporal_index = pos_b * T + pos_a
-
-        return (temporal_index, spatial_index)
-    
-    @torch.no_grad()  # TODO: modify this
-    def dual_filter(self, x, prop, sparse_flag=False, z=None, **kwargs):
-        raise NotImplementedError("This filter method is not implemented")
-        # x: [B, C, T, H, W]
-        B, T, S = self.shape
-        assert x.size(0) == 1, "The batch size should be 1 now"
-
-        if not sparse_flag:
-            self.acc_scale.fill_(0.0)
-            return (None, None)
-        
-        # accumulate scale
-        y = torch.std(x, dim=1).unsqueeze(1)  # [B, 1, T, H, W]
-        y = self.patch_gather(y).view(-1)  # [B, N, 1]
-        self.acc_scale += y
-
-        type_flag = self.filter_counter % 2  # 0 for spatial, 1 for temporal
-        self.filter_counter += 1
-
-        if type_flag == 0:
-            # spatial filter
-            n_tokens = math.ceil(T * S * prop)
-            _, spatial_index = torch.topk(self.acc_scale, n_tokens, largest=True)
-        else:
-            # temporal filter
-            prev_x = x[:, :, :-1, :, :]
-            next_x = x[:, :, 1:, :, :]
-            y = torch.norm(next_x - prev_x, dim=1).unsqueeze(1)  # [B, 1, T, H, W]
-            y = self.patch_gather(y, flatten_flag=False).squeeze(1)  # [B, t, h, w]
-            y = torch.mean(y, dim=1).view(-1) # [S]
-
-            n_tokens = math.ceil(S * prop)
-            _, s_index = torch.topk(y, n_tokens, largest=True)
-
-            j = torch.arange(T, device=y.device) * S  # [T]
-            spatial_index = s_index[:, None] + j  # [n_tokens, T]
-            spatial_index = spatial_index.view(-1)
-            
-        self.acc_scale.index_fill_(0, spatial_index, 0.0)
-
-        pos_b = spatial_index % S
-        pos_a = spatial_index // S
-        temporal_index = pos_b * T + pos_a
-
-        return (temporal_index, spatial_index)
-    
-    @torch.no_grad()
-    def random_filter(self, x, prop, sparse_flag=False, **kwargs):
-        # x: [B, T, C, Ho, Wo]
-        B, T, S = self.save_shape
-        assert x.size(0) == 1, "The batch size should be 1 now"
-
-        if not sparse_flag:
-            return None
-
-        n_tokens = math.ceil(T * S * prop)
-        spatial_index = torch.randperm(T * S, device=x.device)[:n_tokens]
-
-        return spatial_index
-    
-    @torch.no_grad()
-    def shortterm_filter(self, x, prop, sparse_flag=False, **kwargs):
-        # x: [B, T, C, Ho, Wo]
-        B, T, S = self.save_shape
-        assert x.size(0) == 1, "The batch size should be 1 now"
-        x = x.permute(0, 2, 1, 3, 4).contiguous()  # [B, C, T, Ho, Wo]
-
-        # update the short-term window
-        self.window.insert(x)
-
-        if not sparse_flag or self.filter_counter >= self.window_length - 1:
-            # reset the counter, do not filter
-            self.filter_counter = 0
-            return None
-        
-        self.filter_counter += 1
-
-        y = self.window.get_std_sqr()  # [B, C, To, Ho, Wo]
-
-        if self.filter_counter == 2:
-            y = torch.sqrt(y)
-            # prev_y = y[:, :, :-1, :, :]  # [B, C, To-1, Ho, Wo]
-            # next_y = y[:, :, 1:, :, :]   # [B, C, To-1, Ho, Wo]
-            # y = (torch.norm(next_y - prev_y, dim=1) ** 2).unsqueeze(1)  # [B, 1, To-1, Ho, Wo]
-            y_mean = torch.mean(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
-            y = torch.norm(y - y_mean, dim=1, keepdim=True) ** 2  # [B, 1, To, Ho, Wo]
-            y = self.patch_gather(y, flatten_flag=False).squeeze(1)  # [B, T, H, W]
-            y = torch.mean(y, dim=1).view(-1) # [S]
-
-            n_tokens = math.ceil(S * prop)
-            _, s_index = torch.topk(y, n_tokens, largest=True)
-
-            j = torch.arange(T, device=y.device) * S  # [T]
-            spatial_index = s_index[:, None] + j  # [n_tokens, T]
-            spatial_index = spatial_index.view(-1)
-        elif self.filter_counter == 3:
-            y = torch.sum(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
-            y = self.patch_gather(y).view(-1)  # [N]
-            n_tokens = math.ceil(T * S * prop)
-            _, spatial_index = torch.topk(y, n_tokens, largest=True)
-        else:
-            y = torch.sum(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
-            y = self.patch_gather(y).view(T, S)  # [T, S]
-            y = torch.sum(y, dim=-1)  # [T]
-            n_tokens = math.ceil(T * prop)
-            _, t_index = torch.topk(y, n_tokens, largest=True)
-
-            i = torch.arange(S, device=y.device)  # [S]
-            spatial_index = i[:, None] + t_index * S  # [S, n_tokens]
-            spatial_index = spatial_index.view(-1)
-
-        return spatial_index
-    
-    def index_filter(self, v_pred, coef, **kwargs):
-        if self.filer_method_int == 0:
-            return self.constant_filter(v_pred, coef, **kwargs)
-        elif self.filer_method_int == 1:
-            return self.threshold_filter(v_pred, coef, **kwargs)
-        elif self.filer_method_int == 2:
-            return self.threshold_filter(v_pred, coef, **kwargs)
-        elif self.filer_method_int == 3:
-            return self.dual_filter(v_pred, coef, **kwargs)
-        elif self.filer_method_int == 4:
-            return self.shortterm_filter(v_pred, coef, **kwargs)
-        elif self.filer_method_int == 5:
-            return self.random_filter(v_pred, coef, **kwargs)
-        else:
-            raise NotImplementedError("This filter method is not implemented")
-    
-    @torch.no_grad()
-    def get_update_mask(self, z, spatial_index=None):
-        B = z.size(0)
-        assert B == 1, "The batch size should be 1 now"
-        
-        _, _, T_n, H_n, W_n = z.size()
-        if spatial_index is None:
-            mask = torch.ones((B, 1, T_n, H_n, W_n), dtype=torch.int32)
-            return mask
-
-        _, T, S = self.shape
-        H, W = self.HW
-        T_p, H_p, W_p = self.patch_gather.patch_size
-        mask = torch.zeros(B, T * S, dtype=torch.int32, device=z.device)
-        mask.index_fill_(1, spatial_index, 1)
-
-        mask = mask.view(B, T, 1, H, 1, W, 1)
-        mask = mask.expand(B, T, T_p, H, H_p, W, W_p)
-        mask = mask.reshape(B, T * T_p, H * H_p, W * W_p)
-        mask = mask[:, :T_n, :H_n, :W_n]
-        mask = mask.reshape(B, 1, T_n, H_n, W_n)
-        return mask
+    def get_patch_size(self):
+        return (1, self.model.config.patch_size, self.model.config.patch_size)
 
     @torch.no_grad()
     # ADD use cache parameter
