@@ -481,9 +481,8 @@ class STDiT3C(PreTrainedModel):
     def init_cache(self, B, T, S):
         dtype = self.x_embedder.proj.weight.dtype
         device = self.x_embedder.proj.weight.device
-        self.input_cache = QKVCache(
-            1, T, B, T * S, self.hidden_size, 
-            dtype=dtype, device=device)
+        cache_hs = np.prod(self.patch_size) * self.out_channels
+        self.input_cache = QKVCache(1, T, B, T * S, cache_hs, dtype=dtype, device=device)
 
     def forward(
         self, x, timestep, y, mask=None, x_mask=None, fps=None, height=None, width=None, 
@@ -581,15 +580,16 @@ class STDiT3C(PreTrainedModel):
         #     x = rearrange(x, "B T S C -> B (T S) C", T=T, S=S)
         #     x_mask = x_mask_org
 
+        # === final layer ===
+        x = self.final_layer(x, t, x_mask, t0, T, S)
+
         if cache is not None:
             if self.input_cache:
                 x = self.input_cache.update([x], spatial_index)[0]
-                x = x.view(self.input_cache.bs, -1, self.hidden_size)
+                x = x.view(self.input_cache.bs, -1, self.input_cache.n_dim)
             else:
                 assert index[0] is None, "The index should be None for now"
 
-        # === final layer ===
-        x = self.final_layer(x, t, x_mask, t0, T, S)
         x = self.unpatchify(x, T, H, W, Tx, Hx, Wx)
 
         # cast to float32 for better accuracy
@@ -644,7 +644,7 @@ class OpenSoraSTU(STUBase):
 
         self.spat_size = S
         self.temp_size = T
-        self.hegith = H
+        self.height = H
         self.width = W
         self.frame_update_counter = torch.zeros(T, dtype=torch.int16, device=x.device)
 
@@ -690,6 +690,9 @@ class OpenSoraSTU(STUBase):
 
     def get_patch_size(self):
         return self.patch_gather.patch_size
+    
+    def get_thw(self, x):
+        return (x.size(2), x.size(3), x.size(4))
 
     @torch.no_grad()
     # ADD use cache parameter

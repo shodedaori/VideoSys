@@ -466,7 +466,8 @@ class OpenSoraPipeline(VideoSysPipeline):
         condition_frame_edit: float = 0.0,
         return_dict: bool = True,
         blur3d: bool = False,
-        verbose: bool = True,
+        progress: bool = True,
+        verbose: bool = False,
     ) -> Union[VideoSysPipelineOutput, Tuple]:
         """
         Function invoked when calling the pipeline for generation.
@@ -655,8 +656,9 @@ class OpenSoraPipeline(VideoSysPipeline):
                 model_args=model_args,
                 y_null=y_null,
                 device=self._device,
-                progress=verbose,
+                progress=progress,
                 mask=masks,
+                verbose=verbose
             )
             samples = self.vae(samples.to(self._dtype), decode_only=True, num_frames=num_frames)
             video_clips.append(samples)

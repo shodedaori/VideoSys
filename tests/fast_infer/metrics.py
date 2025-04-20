@@ -78,8 +78,8 @@ def get_video_list(video_path):
 def main():
     # names, base_paths, eval_paths = generate_my_video_path_list('base')
     # print(names)
-    base_paths = ['./test_outputs/Close_up_of_grapes_o_base.mp4']
-    eval_paths = ['./test_outputs/Close_up_of_grapes_o_shortterm.mp4']
+    base_paths = ['./test_outputs/A_sleek,_modern_lapt_base.mp4']
+    eval_paths = ['./test_outputs/A_sleek,_modern_lapt_random_token.mp4']
     print(f"Base video path: {base_paths}")
     print(f"Eval video path: {eval_paths}")
     base_video = get_video_list(base_paths)

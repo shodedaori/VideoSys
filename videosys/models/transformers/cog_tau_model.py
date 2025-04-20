@@ -594,21 +594,17 @@ class CogVideoSTU(STUBase):
         self.patch_gather = PatchGather(patch_size=(1, p, p))
         self.patch_gather = self.patch_gather.to(dtype=torch.float32, device=x.device)
 
-        # init scale storage
-        self.total_scale = torch.zeros(T * S, dtype=torch.float32, device=x.device)
-        self.acc_scale = torch.zeros_like(self.total_scale)
-
         # init dual filter counter
         self.filter_counter = 0
 
         # init short-term window
-        if self.filer_method_int == 4:
+        if self.filer_method_int == 3:
             self.window_length = 4
             nx = x.permute(0, 2, 1, 3, 4)
             self.window = ShorttermWindow(nx, self.window_length)
 
     def generate_check(self, x):
-        assert self.shape == tuple(x.shape), "The shape of x is not the same as the cache shape"
+        assert self.sample_shape == tuple(x.shape), "The shape of x is not the same as the cache shape"
     
     def to_bcthw(self, x):
         x = x.permute(0, 2, 1, 3, 4).contiguous()
@@ -616,6 +612,9 @@ class CogVideoSTU(STUBase):
 
     def get_patch_size(self):
         return (1, self.model.config.patch_size, self.model.config.patch_size)
+    
+    def get_thw(self, x):
+        return (x.size(1), x.size(3), x.size(4))
 
     @torch.no_grad()
     # ADD use cache parameter

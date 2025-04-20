@@ -13,7 +13,6 @@ class SIRFLOW(RFLOW):
         self.coef = coef
         self.filter = filter
         self.warm_prop = 1 / 3
-        self.verbose = False
 
         if coef >= 1.0: # no sparse in the sampling
             self.warm_prop = 1.0
@@ -90,14 +89,14 @@ class SIRFLOW(RFLOW):
             t = torch.cat([t, t], 0)
 
             # pred = model(z_in, t, **model_args).chunk(2, dim=1)[0]
-            if warm_steps <= i:
+            if i >= warm_steps - 1:
                 model_args["use_cache"] = True
                 model_args["index"] = selec_index
             else:
                 model_args["use_cache"] = False
                 model_args["index"] = (None, None)
 
-            if self.verbose:
+            if verbose:
                 update_mask = si_model.get_update_mask(z, model_args['index'][1])
             
             output = si_model(z_in, t, **model_args)
@@ -114,13 +113,13 @@ class SIRFLOW(RFLOW):
             
             z = z + v_pred
 
-            if self.verbose:
+            if verbose:
                 save_list.append((v_pred, z, update_mask))
 
             if mask is not None:
                 z = torch.where(mask_t_upper[:, None, :, None, None], z, x0)
 
-        if self.verbose:
+        if verbose:
             save_obj(save_list, "./exp/", f"coef_{self.coef}_filter_{self.filter}")
         # exit(0)
         return z

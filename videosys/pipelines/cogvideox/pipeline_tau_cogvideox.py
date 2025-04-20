@@ -686,12 +686,15 @@ class CogVideoXTauPipeline(VideoSysPipeline):
                 if self.interrupt:
                     continue
 
-                if warm_steps <= i:
+                if i >= warm_steps - 1:
                     model_args["use_cache"] = True
                     model_args["token_index"] = token_index
                 else:
                     model_args["use_cache"] = False
                     model_args["token_index"] = None
+
+                if verbose:
+                    update_mask = tau_model.get_update_mask(latents, model_args['token_index'])
 
                 latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
@@ -722,10 +725,10 @@ class CogVideoXTauPipeline(VideoSysPipeline):
                 # compute the previous noisy sample x_t -> x_t-1
                 assert isinstance(self.scheduler, CogVideoXDDIMScheduler)
                 latents, epsilon = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)
-                token_index = tau_model.index_filter(epsilon, self.coef, sparse_flag=(warm_steps-1<=i<self._num_timesteps-1), k=i)
+                token_index = tau_model.index_filter(epsilon, self.coef, return_type='s_only', sparse_flag=(warm_steps-1<=i<self._num_timesteps-1), k=i)
                 
                 if verbose:
-                    save_list.append((epsilon, latents, 0))
+                    save_list.append((epsilon, latents, update_mask))
                 
                 latents = latents.to(prompt_embeds.dtype)
 

@@ -40,18 +40,21 @@ class STUBase(nn.Module):
         raise NotImplementedError("This method should be implemented in the subclass")
     
     @torch.no_grad()
-    def global_select(self, weight: Optional[torch.Tensor], ratio: int, method: str = "random"):
+    def global_select(self, weight: Optional[torch.Tensor], ratio: int, method: str = "random", device=None):
         """Select a subset of tokens based on the given ratio."""
         T, S = self.temp_size, self.spat_size
         # weight: [T * S]
         if weight is not None:
             assert len(weight.shape) == 1, "The weight should be 1D tensor"
             assert weight.size(0) == T * S, "The weight size should be T * S"
+            device = weight.device
+        else:
+            assert device is not None, "The device should be specified if weight is None"
 
         if method == "random":
             # Randomly select n_tokens from the permutation
             n_tokens = math.ceil(T * S * ratio)
-            spatial_index = torch.randperm(T * S, device=weight.device)[:n_tokens]
+            spatial_index = torch.randperm(T * S, device=device)[:n_tokens]
         elif method == "largest":
             # Select the largest n_tokens from the weight
             n_tokens = math.ceil(T * S * ratio)
@@ -64,29 +67,32 @@ class STUBase(nn.Module):
         else:
             raise NotImplementedError("This method is not implemented")
         
-        pos_b = spatial_index % S
-        pos_a = spatial_index // S
-        temporal_index = pos_b * T + pos_a
-
-        return (temporal_index, spatial_index)
+        return spatial_index
     
     @torch.no_grad()
-    def frame_level_select(self, weight: Optional[torch.Tensor], ratio: int, method: str = "random"):
+    def frame_level_select(self, weight: Optional[torch.Tensor], ratio: int, method: str = "random", device=None):
         """Select a subset of tokens based on the given ratio."""
         T, S = self.temp_size, self.spat_size
         # weight: [T]
         if weight is not None:
             assert len(weight.shape) == 1, "The weight should be 1D tensor"
             assert weight.size(0) == T, "The weight size should be T"
+            device = weight.device
+        else:
+            assert device is not None, "The device should be specified if weight is None"
 
         if method == "random":
             # Randomly select n_tokens from the permutation
             n_tokens = math.ceil(T * ratio)
-            t_index = torch.randperm(T, device=weight.device)[:n_tokens]
+            t_index = torch.randperm(T, device=device)[:n_tokens]
         elif method == "largest":
             # Select the largest n_tokens from the weight
             n_tokens = math.ceil(T * ratio)
             _, t_index = torch.topk(weight, n_tokens, largest=True)
+        elif method == "smallest":
+            # Select the smallest n_tokens from the weight
+            n_tokens = math.ceil(T * ratio)
+            _, t_index = torch.topk(weight, n_tokens, largest=False)
         elif method == "less_frequent":
             # Select the less frequent n_tokens from the weight
             n_tokens = math.ceil(T * ratio)
@@ -97,29 +103,28 @@ class STUBase(nn.Module):
         # update per frame update counter
         self.frame_update_counter.index_add_(0, t_index, torch.ones_like(t_index, dtype=self.frame_update_counter.dtype))
 
-        i = torch.arange(S, device=weight.device)  # [S]
+        i = torch.arange(S, device=device)  # [S]
         spatial_index = i[:, None] + t_index * S  # [S, n_tokens]
         spatial_index = spatial_index.view(-1)
 
-        pos_b = spatial_index % S
-        pos_a = spatial_index // S
-        temporal_index = pos_b * T + pos_a
-
-        return (temporal_index, spatial_index)
+        return spatial_index
 
     @torch.no_grad()
-    def channel_level_select(self, weight: Optional[torch.Tensor], ratio: int, method: str = "random"):
+    def channel_level_select(self, weight: Optional[torch.Tensor], ratio: int, method: str = "random", device=None):
         """Select a subset of tokens based on the given ratio."""
         T, S = self.temp_size, self.spat_size
         # weight: [S]
         if weight is not None:
             assert len(weight.shape) == 1, "The weight should be 1D tensor"
             assert weight.size(0) == S, "The weight size should be S"
+            device = weight.device
+        else:
+            assert device is not None, "The device should be specified if weight is None"
 
         if method == "random":
             # Randomly select n_tokens from the permutation
             n_tokens = math.ceil(S * ratio)
-            s_index = torch.randperm(S, device=weight.device)[:n_tokens]
+            s_index = torch.randperm(S, device=device)[:n_tokens]
         elif method == "largest":
             # Select the largest n_tokens from the weight
             n_tokens = math.ceil(S * ratio)
@@ -127,47 +132,43 @@ class STUBase(nn.Module):
         else:
             raise NotImplementedError("This method is not implemented")
 
-        j = torch.arange(T, device=weight.device) * S
+        j = torch.arange(T, device=device) * S
         spatial_index = s_index[:, None] + j  # [n_tokens, T]   
         spatial_index = spatial_index.view(-1)
 
-        pos_b = spatial_index % S
-        pos_a = spatial_index // S
-        temporal_index = pos_b * T + pos_a
-
-        return (temporal_index, spatial_index)
+        return spatial_index
 
     @torch.no_grad()
     def random_token_filter(self, x, ratio, sparse_flag=False, **kwargs):
         # x: [B, C, T, H, W]
         assert x.size(0) == 1, "The batch size should be 1 now"
         if not sparse_flag:  # dense update
-            return (None, None)
+            return None
 
-        return self.global_select(None, ratio, method="random")
+        return self.global_select(None, ratio, method="random", device=x.device)
     
     @torch.no_grad()
     def random_frame_filter(self, x, ratio, sparse_flag=False, **kwargs):
         # x: [B, C, T, H, W]
         assert x.size(0) == 1, "The batch size should be 1 now"
         if not sparse_flag:
-            return (None, None)
+            return None
 
-        return self.frame_level_select(None, ratio, method="random")
+        return self.frame_level_select(None, ratio, method="random", device=x.device)
     
     @torch.no_grad()
     def random_channel_filter(self, x, ratio, sparse_flag=False, **kwargs):
         # x: [B, C, T, H, W]
         assert x.size(0) == 1, "The batch size should be 1 now"
         if not sparse_flag:
-            return (None, None)
+            return None
 
-        return self.channel_level_select(None, ratio, method="random")   
+        return self.channel_level_select(None, ratio, method="random", device=x.device)   
     
     @torch.no_grad()
     def shortterm_filter(self, x, ratio, sparse_flag=False, **kwargs):
         # x: [B, C, To, Ho, Wo]
-        B, T, S = self.shape
+        T, S = self.temp_size, self.spat_size
         assert x.size(0) == 1, "The batch size should be 1 now"
 
         # update the short-term window
@@ -176,13 +177,13 @@ class STUBase(nn.Module):
         if not sparse_flag or self.filter_counter >= self.window_length - 1:
             # reset the counter, do not filter
             self.filter_counter = 0
-            return (None, None)
+            return None
         
         self.filter_counter += 1
 
         y = self.window.get_std_sqr()  # [B, C, To, Ho, Wo]
 
-        if self.filter_counter == 3:
+        if self.filter_counter == 2:
             y = torch.sqrt(y)
             prev_y = y[:, :, :-1, :, :]  # [B, C, To-1, Ho, Wo]
             next_y = y[:, :, 1:, :, :]   # [B, C, To-1, Ho, Wo]
@@ -201,7 +202,14 @@ class STUBase(nn.Module):
             y = self.patch_gather(y).view(-1)  # [N]
 
             return self.global_select(y, ratio, method="largest")
+        
+        elif self.filter_counter == 4:
+            y = torch.sum(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
+            y = self.patch_gather(y).view(T, S)  # [T, S]
+            y = torch.sum(y, dim=-1)  # [T]
             
+            return self.frame_level_select(y, ratio, method="less_frequent")
+        
         else:
             y = torch.sum(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
             y = self.patch_gather(y).view(T, S)  # [T, S]
@@ -215,29 +223,48 @@ class STUBase(nn.Module):
     def get_patch_size(self) -> Tuple[int, int, int]:
         raise NotImplementedError("This method should be implemented in the subclass")
     
-    def index_filter(self, v_pred, coef, **kwargs):
+    def index_filter(self, v_pred, coef, return_type='s_and_t', **kwargs):
+        v_pred = self.to_bcthw(v_pred)
+
         if self.filer_method_int == 0:
-            return self.random_token_filter(v_pred, coef, **kwargs)
+            spat_index = self.random_token_filter(v_pred, coef, **kwargs)
         elif self.filer_method_int == 1:
-            return self.random_frame_filter(v_pred, coef, **kwargs)
+            spat_index = self.random_frame_filter(v_pred, coef, **kwargs)
         elif self.filer_method_int == 2:
-            return self.random_channel_filter(v_pred, coef, **kwargs)
+            spat_index = self.random_channel_filter(v_pred, coef, **kwargs)
         elif self.filer_method_int == 3:
-            return self.shortterm_filter(v_pred, coef, **kwargs)
+            spat_index = self.shortterm_filter(v_pred, coef, **kwargs)
         else:
             raise NotImplementedError("This filter method is not implemented")
+        
+        if return_type == 's_only':
+            return spat_index
+        elif return_type == 's_and_t':
+            if spat_index is None:
+                return (None, None)
+            
+            T, S = self.temp_size, self.spat_size
+            pos_b = spat_index % S
+            pos_a = spat_index // S
+            temp_index = pos_b * T + pos_a
+            return (temp_index, spat_index)
+        else:
+            raise NotImplementedError("This return type is not implemented")
+
+    def get_thw(self, x):
+        raise NotImplementedError("This method should be implemented in the subclass")
     
     @torch.no_grad()
     def get_update_mask(self, z, spatial_index=None):
         B = z.size(0)
         assert B == 1, "The batch size should be 1 now"
         
-        _, _, T_n, H_n, W_n = z.size()
+        T_n, H_n, W_n = self.get_thw(z)
         if spatial_index is None:
             mask = torch.ones((B, 1, T_n, H_n, W_n), dtype=torch.int32)
             return mask
 
-        _, T, S = self.shape
+        T, S = self.temp_size, self.spat_size
         H, W = self.height, self.width
         T_p, H_p, W_p = self.get_patch_size()
         mask = torch.zeros(B, T * S, dtype=torch.int32, device=z.device)
