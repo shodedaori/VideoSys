@@ -109,9 +109,9 @@ class SIRFLOW(RFLOW):
             # update z
             dt = timesteps[i] - timesteps[i + 1] if i < len(timesteps) - 1 else timesteps[i]
             dt = dt / self.num_timesteps
-            selec_index = si_model.index_filter(v_pred, dt, self.coef, sparse_flag=(warm_steps-1<=i<self.num_sampling_steps-1), k=i)
-
             v_pred = v_pred * dt[:, None, None, None, None]
+            selec_index = si_model.index_filter(v_pred, self.coef, sparse_flag=(warm_steps-1<=i<self.num_sampling_steps-1), k=i)
+            
             z = z + v_pred
 
             if self.verbose:
