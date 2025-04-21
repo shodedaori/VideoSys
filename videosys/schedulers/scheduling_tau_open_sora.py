@@ -58,7 +58,13 @@ class SIRFLOW(RFLOW):
         else:
             warm_steps = min(math.ceil(self.num_sampling_steps * self.warm_prop), 10)
 
+        if self.warm_prop < 1.0:
+            first_stage_end = warm_steps + math.ceil((self.num_sampling_steps - warm_steps) * 0.5)
+        else:
+            first_stage_end = self.num_sampling_steps + 1
+
         print("Full update warmup steps:", warm_steps)
+        print("First stage end:", first_stage_end)
         si_model = OpenSoraSTU(model, self.filter)
         si_model.init_generate_cache(z)
         selec_index = (None, None)
@@ -109,7 +115,11 @@ class SIRFLOW(RFLOW):
             dt = timesteps[i] - timesteps[i + 1] if i < len(timesteps) - 1 else timesteps[i]
             dt = dt / self.num_timesteps
             v_pred = v_pred * dt[:, None, None, None, None]
-            selec_index = si_model.index_filter(v_pred, self.coef, sparse_flag=(warm_steps-1<=i<self.num_sampling_steps-1), k=i)
+            selec_index = si_model.index_filter(
+                v_pred, self.coef, 
+                sparse_flag = (warm_steps - 1 <= i < self.num_sampling_steps - 1), 
+                first_stage_flag = (i < first_stage_end - 1)
+            )
             
             z = z + v_pred
 

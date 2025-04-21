@@ -669,10 +669,11 @@ class CogVideoXTauPipeline(VideoSysPipeline):
         tau_model = CogVideoSTU(self.transformer, self.filter)
         tau_model.init_generate_cache(latents, max_sequence_length)
         warm_steps = min(math.ceil(self._num_timesteps / 3), 10)
+        first_stage_end = warm_steps + math.ceil((self._num_timesteps - warm_steps) / 2)
         token_index = None
         model_args = dict()
         print("TAU inference acceleration is enabled.")
-        print(f"Total steps: {self._num_timesteps}, Warm steps: {warm_steps}")
+        print(f"Total steps: {self._num_timesteps}, Warm steps: {warm_steps}, First stage end: {first_stage_end}")
 
         # 8. Denoising loop
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
@@ -725,7 +726,12 @@ class CogVideoXTauPipeline(VideoSysPipeline):
                 # compute the previous noisy sample x_t -> x_t-1
                 assert isinstance(self.scheduler, CogVideoXDDIMScheduler)
                 latents, epsilon = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)
-                token_index = tau_model.index_filter(epsilon, self.coef, return_type='s_only', sparse_flag=(warm_steps-1<=i<self._num_timesteps-1), k=i)
+                token_index = tau_model.index_filter(
+                    epsilon, self.coef, 
+                    return_type='s_only', 
+                    sparse_flag=(warm_steps-1<=i<self._num_timesteps-1), 
+                    first_stage_flag=(i<first_stage_end-1),
+                )
                 
                 if verbose:
                     save_list.append((epsilon, latents, update_mask))

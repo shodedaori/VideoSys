@@ -238,6 +238,7 @@ class STUBase(nn.Module):
 
         y = self.window.get_std_sqr()  # [B, C, To, Ho, Wo]
         
+        first_stage_flag = kwargs.get("first_stage_flag", False)
         if self.filter_counter == 2:
             # y = torch.sqrt(y)
             prev_y = y[:, :, :-1, :, :]  # [B, C, To-1, Ho, Wo]
@@ -252,11 +253,12 @@ class STUBase(nn.Module):
             y = torch.mean(y, dim=1).view(-1) # [S]
 
             return self.channel_level_select(y, ratio, method="largest")
-        elif self.filter_counter == 3:
+        elif self.filter_counter == 3 and (not first_stage_flag):
             y = torch.sum(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
-            y = self.patch_gather(y).view(-1)  # [N]
-
-            return self.global_select(y, ratio, method="largest")
+            y = self.patch_gather(y).view(T, S)  # [T, S]
+            y = torch.sum(y, dim=-1)  # [T]
+            
+            return self.frame_level_select(y, ratio, method="per_frame_largest")
         else:
             y = torch.sum(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
             y = self.patch_gather(y).view(T, S)  # [T, S]
