@@ -29,7 +29,7 @@ def test_base(num_gpus, model_path):
 @pytest.mark.parametrize("model_path", ["THUDM/CogVideoX-2b", "THUDM/CogVideoX-5b"])
 @empty_cache
 def test_tau(num_gpus, model_path):
-    my_filter = 'shortterm'
+    my_filter = 'random_token'
     config = CogVideoXTauConfig(
         model_path=model_path, 
         num_gpus=num_gpus,
