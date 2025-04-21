@@ -115,9 +115,14 @@ class CogTauAttnProcessor2_0:
         #     attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
         #     attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
 
-        query = attn.to_q(hidden_states)
-        key = attn.to_k(hidden_states)
-        value = attn.to_v(hidden_states)
+        if attn.fused_projections:
+            B, N, C = hidden_states.shape
+            qkv = attn.to_qkv(hidden_states)
+            query, key, value = qkv.view(B, N, 3, C).permute(2, 0, 1, 3).unbind(0)
+        else:
+            query = attn.to_q(hidden_states)
+            key = attn.to_k(hidden_states)
+            value = attn.to_v(hidden_states)
 
         if kvcache is not None:
             key, value = kvcache.update((key, value), token_index)
@@ -579,6 +584,10 @@ class CogVideoSTU(STUBase):
 
         dtype = self.model.patch_embed.proj.weight.dtype
         device = self.model.patch_embed.proj.weight.device
+
+        # fuse projections in attention blocks
+        for block in self.model.transformer_blocks:
+            block.attn1.fuse_projections()
 
         inner_dim = self.model.config.num_attention_heads * self.model.config.attention_head_dim
         last_block = self.model.transformer_blocks[-1]
