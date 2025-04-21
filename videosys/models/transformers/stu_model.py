@@ -21,13 +21,15 @@ class STUBase(nn.Module):
         
         # init filter method
         if filter_method == "random_token":
-            self.filer_method_int = 0
+            self.filter_method_int = 0
         elif filter_method == "random_frame":
-            self.filer_method_int = 1
+            self.filter_method_int = 1
         elif filter_method == "random_channel":
-            self.filer_method_int = 2
+            self.filter_method_int = 2
         elif filter_method == "shortterm":
-            self.filer_method_int = 3
+            self.filter_method_int = 3
+        elif filter_method == "pframe":
+            self.filter_method_int = 4
         else:
             raise NotImplementedError("This filter method is not implemented")
 
@@ -218,6 +220,37 @@ class STUBase(nn.Module):
             
             return self.frame_level_select(y, ratio, method="largest")
         
+    @torch.no_grad()
+    def pframe_filter(self, x, ratio, sparse_flag=False, **kwargs):
+        # x: [B, C, To, Ho, Wo]
+        T, S = self.temp_size, self.spat_size
+        assert x.size(0) == 1, "The batch size should be 1 now"
+
+        # update the short-term window
+        self.window.insert(x)
+
+        if not sparse_flag or self.filter_counter >= self.window_length - 1:
+            # reset the counter, do not filter
+            self.filter_counter = 0
+            return None
+        
+        self.filter_counter += 1
+
+        y = self.window.get_std_sqr()  # [B, C, To, Ho, Wo]
+        
+        if self.filter_counter == 2:
+            y = torch.sum(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
+            y = self.patch_gather(y).view(-1)  # [N]
+
+            return self.global_select(y, ratio, method="per_frame_largest")
+        
+        else:
+            y = torch.sum(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
+            y = self.patch_gather(y).view(T, S)  # [T, S]
+            y = torch.sum(y, dim=-1)  # [T]
+            
+            return self.frame_level_select(y, ratio, method="largest")
+        
     def to_bcthw(self, x) -> torch.Tensor:
         raise NotImplementedError("This method should be implemented in the subclass")
     
@@ -227,14 +260,16 @@ class STUBase(nn.Module):
     def index_filter(self, v_pred, coef, return_type='s_and_t', **kwargs):
         v_pred = self.to_bcthw(v_pred)
 
-        if self.filer_method_int == 0:
+        if self.filter_method_int == 0:
             spat_index = self.random_token_filter(v_pred, coef, **kwargs)
-        elif self.filer_method_int == 1:
+        elif self.filter_method_int == 1:
             spat_index = self.random_frame_filter(v_pred, coef, **kwargs)
-        elif self.filer_method_int == 2:
+        elif self.filter_method_int == 2:
             spat_index = self.random_channel_filter(v_pred, coef, **kwargs)
-        elif self.filer_method_int == 3:
+        elif self.filter_method_int == 3:
             spat_index = self.shortterm_filter(v_pred, coef, **kwargs)
+        elif self.filter_method_int == 4:
+            spat_index = self.pframe_filter(v_pred, coef, **kwargs)
         else:
             raise NotImplementedError("This filter method is not implemented")
         

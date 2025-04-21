@@ -598,7 +598,7 @@ class CogVideoSTU(STUBase):
         self.filter_counter = 0
 
         # init short-term window
-        if self.filer_method_int == 3:
+        if self.filter_method_int >= 3:
             self.window_length = 4
             nx = x.permute(0, 2, 1, 3, 4)
             self.window = ShorttermWindow(nx, self.window_length)

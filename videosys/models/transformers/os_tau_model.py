@@ -674,7 +674,7 @@ class OpenSoraSTU(STUBase):
         self.filter_counter = 0
 
         # init short-term window
-        if self.filer_method_int == 3:
+        if self.filter_method_int >= 3:
             self.window_length = 4
             self.window = ShorttermWindow(x, self.window_length)
 
