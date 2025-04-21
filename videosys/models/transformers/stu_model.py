@@ -63,8 +63,12 @@ class STUBase(nn.Module):
             _, spatial_index = torch.topk(weight, n_tokens, largest=True)
         elif method == "per_frame_largest":
             # Select the largest n_tokens from each frame
+            weight = weight.view(T, S)  # [T, S]
             n_tokens_per_frame = math.ceil(S * ratio)
-            _, spatial_index = torch.topk(weight, n_tokens_per_frame, largest=True)
+            _, s_index = torch.topk(weight, n_tokens_per_frame, largest=True)  # [T, n_tokens_per_frame]
+
+            i = torch.arange(T, device=device) * S  # [T]
+            spatial_index = i[:, None] + s_index  # [T, n_tokens_per_frame]
             spatial_index = spatial_index.view(-1)
         else:
             raise NotImplementedError("This method is not implemented")
@@ -238,7 +242,7 @@ class STUBase(nn.Module):
 
         y = self.window.get_std_sqr()  # [B, C, To, Ho, Wo]
         
-        first_stage_flag = kwargs.get("first_stage_flag", False)
+        first_stage_flag = kwargs.get("first_stage_flag", True)
         if self.filter_counter == 2:
             # y = torch.sqrt(y)
             prev_y = y[:, :, :-1, :, :]  # [B, C, To-1, Ho, Wo]
@@ -250,15 +254,14 @@ class STUBase(nn.Module):
             # y = torch.norm(y - y_mean, dim=1, keepdim=True) ** 2  # [B, 1, To, Ho, Wo]
             
             y = self.patch_gather(y, flatten_flag=False).squeeze(1)  # [B, 1, T, H, W]
-            y = torch.mean(y, dim=1).view(-1) # [S]
+            y = torch.mean(y, dim=1).view(-1) # [T * S]
 
             return self.channel_level_select(y, ratio, method="largest")
         elif self.filter_counter == 3 and (not first_stage_flag):
             y = torch.sum(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
-            y = self.patch_gather(y).view(T, S)  # [T, S]
-            y = torch.sum(y, dim=-1)  # [T]
+            y = self.patch_gather(y).view(-1)  # [T, S]
             
-            return self.frame_level_select(y, ratio, method="per_frame_largest")
+            return self.global_select(y, ratio, method="per_frame_largest")
         else:
             y = torch.sum(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
             y = self.patch_gather(y).view(T, S)  # [T, S]

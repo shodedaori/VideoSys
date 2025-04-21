@@ -79,7 +79,7 @@ def main():
     # names, base_paths, eval_paths = generate_my_video_path_list('base')
     # print(names)
     base_paths = ['./test_outputs/THUDM/CogVideoX-2b_base.mp4']
-    eval_paths = ['./test_outputs/THUDM/CogVideoX-2b_tau_shortterm.mp4']
+    eval_paths = ['./test_outputs/THUDM/CogVideoX-2b_tau_pframe.mp4']
     print(f"Base video path: {base_paths}")
     print(f"Eval video path: {eval_paths}")
     base_video = get_video_list(base_paths)
