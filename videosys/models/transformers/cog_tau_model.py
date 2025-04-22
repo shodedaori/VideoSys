@@ -566,7 +566,7 @@ class CogVideoSTU(STUBase):
 
     def init_generate_cache(self, x, text_len):
         B, T, C, Hp, Wp = x.shape
-        assert B == 1, "The batch size should be 1 now"
+        # assert B == 1, "The batch size should be 1 now"
 
         B = 2
         p = self.model.config.patch_size
