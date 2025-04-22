@@ -3,17 +3,19 @@ import torch.profiler
 
 from videosys import CogVideoXConfig, VideoSysEngine
 from videosys.pipelines.cogvideox import CogVideoXTauConfig, CogVideoXConfig
+from videosys.models.transformers.cog_tau_model import CogTauTransformer3DModel, CogVideoSTU
 from videosys.utils.test import empty_cache
 
 
 @torch.no_grad()
-def forward_function(model, latent, embeds, timestep, rot):
+def forward_function(model, latent, embeds, timestep, rot, **kwargs):
     pred = model(
         hidden_states=latent,
         encoder_hidden_states=embeds,
         timestep=timestep,
         image_rotary_emb=rot,
         return_dict=False,
+        **kwargs
     )[0]
 
     return pred
@@ -61,9 +63,12 @@ def prof_base_model(model_path):
 
 
 def prof_stu_model(model_path):
-    config = CogVideoXConfig(
+    my_filter = 'pframe'
+    config = CogVideoXTauConfig(
         model_path=model_path, 
-        num_gpus=1
+        num_gpus=1,
+        ti_coef=0.4,
+        ti_filter=my_filter
     )
     engine = VideoSysEngine(config)
 
@@ -84,19 +89,31 @@ def prof_stu_model(model_path):
     else:
         fake_rot = None
 
+    model = CogVideoSTU(model, my_filter)
+    model.init_generate_cache(fake_latent, 226)
+    model_kwargs = dict()
+    model_kwargs["use_cache"] = True
+    model_kwargs["token_index"] = None
+
+    n_tokens = 8775
+    token_index = torch.randperm(17550, device=device)[:n_tokens]
+    y = forward_function(model, fake_latent, fake_embeds, fake_timestep, fake_rot, **model_kwargs)
+    print(f"Cache initialized, token_index: {token_index.shape}, y: {y.shape}")
+    model_kwargs["token_index"] = token_index
+
     warmup = 1
     active = 3
     total = warmup + active
 
     with torch.profiler.profile(
         schedule=torch.profiler.schedule(wait=0, warmup=warmup, active=active),
-        on_trace_ready=torch.profiler.tensorboard_trace_handler(f'./log/{model_path}_base'),
+        on_trace_ready=torch.profiler.tensorboard_trace_handler(f'./log/{model_path}_stu'),
         record_shapes=True,
         profile_memory=True,
         with_stack=True
     ) as prof:
         for i in range(total):
-            y = forward_function(model, fake_latent, fake_embeds, fake_timestep, fake_rot)
+            y = forward_function(model, fake_latent, fake_embeds, fake_timestep, fake_rot, **model_kwargs)
             print(i, y.shape)
             prof.step()
 
