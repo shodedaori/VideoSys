@@ -44,10 +44,10 @@ def test_tau(num_gpus, model_path):
     # prompt = "A panda standing on a surfboard in the ocean in sunset."
     # prompt = "A sleek, modern laptop, its screen displaying a vibrant, paused scene, sits on a minimalist wooden desk. The room is bathed in soft, natural light filtering through sheer curtains, casting gentle shadows. The laptop's keyboard is mid-illumination, with a faint glow emanating from the keys, suggesting a moment frozen in time. Dust particles are suspended in the air, caught in the light, adding to the stillness. A steaming cup of coffee beside the laptop remains untouched, with wisps of steam frozen in mid-air. The scene captures a serene, almost magical pause in an otherwise bustling workspace."
 
-    video = engine.generate(prompt, num_inference_steps=50, seed=0, verbose=True).video[0]
+    video = engine.generate(prompt, num_inference_steps=50, seed=0, verbose=False).video[0]
     engine.save_video(video, f"./test_outputs/{model_path}_tau_{my_filter}.mp4")
 
 
 if __name__ == '__main__':
     # test_base(1, "THUDM/CogVideoX-2b")
-    test_tau(1, "THUDM/CogVideoX-2b")
+    test_tau(1, "THUDM/CogVideoX-5b")

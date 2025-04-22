@@ -171,3 +171,5 @@ datasets
 eval/pab/res
 *.mp4
 *.pkl
+
+tests/fast_infer/log

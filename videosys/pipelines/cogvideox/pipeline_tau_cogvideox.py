@@ -703,6 +703,11 @@ class CogVideoXTauPipeline(VideoSysPipeline):
                 # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
                 timestep = t.expand(latent_model_input.shape[0])
 
+                # print(f"hidden_states shape: {latent_model_input.shape}, {latent_model_input.dtype}")
+                # print(f"timestep shape: {timestep.shape}, {timestep.dtype}")
+                # print(f"prompt_embeds shape: {prompt_embeds.shape}, {prompt_embeds.dtype}")
+                # print(f"image_rotary_emb shape: {image_rotary_emb[0].shape}, {image_rotary_emb[0].dtype}")
+
                 # predict noise model_output
                 noise_pred = tau_model(
                     hidden_states=latent_model_input,
