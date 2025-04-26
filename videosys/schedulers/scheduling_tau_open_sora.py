@@ -12,7 +12,7 @@ class SIRFLOW(RFLOW):
     def __init__(self, coef, filter, *args, **kwargs):
         self.coef = coef
         self.filter = filter
-        self.warm_prop = 1 / 3
+        self.warm_prop = 0.25
 
         if coef >= 1.0: # no sparse in the sampling
             self.warm_prop = 1.0
