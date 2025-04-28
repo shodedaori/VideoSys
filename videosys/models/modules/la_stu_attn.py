@@ -17,7 +17,7 @@ class QKVCache:
         self.hidden_dim = hidden_dim
         self.sequence_length = sub_batch_size * context_length
 
-        self.cache = torch.empty(length, batch_size, sub_batch_size, hidden_dim, dtype=dtype, device=device)
+        self.cache = torch.empty(length, batch_size, self.sequence_length, hidden_dim, dtype=dtype, device=device)
 
     @property
     def shape(self):
@@ -77,7 +77,8 @@ class LatteAttnProcessor(AttnProcessor2_0):
         assert attn.group_norm is None
         # if attn.group_norm is not None:
         #     hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
-
+        
+        self_attn_flag = encoder_hidden_states is None
         if attn.fused_projections:
             B, N, C = hidden_states.shape
             qkv = attn.to_qkv(hidden_states)
@@ -85,7 +86,7 @@ class LatteAttnProcessor(AttnProcessor2_0):
         else:
             query = attn.to_q(hidden_states)
 
-            if encoder_hidden_states is None:
+            if self_attn_flag:
                 encoder_hidden_states = hidden_states
             else:
                 assert attn.norm_cross is None
@@ -93,7 +94,7 @@ class LatteAttnProcessor(AttnProcessor2_0):
             key = attn.to_k(encoder_hidden_states)
             value = attn.to_v(encoder_hidden_states)
 
-        if encoder_hidden_states is None:  # self-attention
+        if self_attn_flag:  # self-attention
             if kvcache is not None:  # update cache
                 query, key, value = kvcache.update([query, key, value], token_index=token_index)  # [B, SUB, CONTEXT, HIDDEN]
             else:
@@ -107,7 +108,7 @@ class LatteAttnProcessor(AttnProcessor2_0):
 
         else: # cross-attention
             if kvcache is not None:
-                query = kvcache.update(query, token_index=token_index)  # [B, SUB, CONTEXT, HIDDEN]
+                query = kvcache.update([query], token_index=token_index)  # [B, SUB, CONTEXT, HIDDEN]
             else:
                 query = query.view(batch_size, sub_batch_size, context_length, -1)
 
