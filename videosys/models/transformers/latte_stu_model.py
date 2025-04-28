@@ -316,7 +316,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
         device = self.pos_embed.proj.weight.device
         self.token_level_cache = QKVCache(
             length=1, 
-            batch_size=x.size(0),
+            batch_size=x.size(0)*2,
             sub_batch_size=self.video_length, 
             context_length=num_patches, 
             hidden_dim=self.inner_dim, 
@@ -339,6 +339,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
         cache_list: Optional[List[Tuple[torch.Tensor]]] = None,
         token_index: Optional[Tuple[torch.Tensor]] = (None, None),  
         return_dict: bool = True,
+        **kwargs,
     ):
         """
         The [`Transformer2DModel`] forward method.

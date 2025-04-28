@@ -33,7 +33,7 @@ from videosys.utils.logging import logger
 from videosys.utils.utils import save_video, set_seed, save_obj
 
 
-class LatteConfig:
+class LatteSTUConfig:
     """
     This config is to instantiate a `LattePipeline` class for video generation.
 
@@ -152,7 +152,7 @@ class LattePipeline(VideoSysPipeline):
 
     def __init__(
         self,
-        config: LatteConfig,
+        config: LatteSTUConfig,
         tokenizer: Optional[T5Tokenizer] = None,
         text_encoder: Optional[T5EncoderModel] = None,
         vae: Optional[AutoencoderKL] = None,
@@ -193,10 +193,6 @@ class LattePipeline(VideoSysPipeline):
                 clip_sample=False,
             )
 
-        # pab
-        if config.enable_pab:
-            set_pab_manager(config.pab_config)
-
         self.register_modules(
             tokenizer=tokenizer, text_encoder=text_encoder, vae=vae, transformer=transformer, scheduler=scheduler
         )
@@ -213,6 +209,9 @@ class LattePipeline(VideoSysPipeline):
         # parallel
         self._set_parallel()
 
+        self.coef = config.stu_coef
+        self.filter = config.stu_filter
+
     def _set_seed(self, seed):
         if dist.get_world_size() == 1:
             set_seed(seed)
@@ -224,8 +223,8 @@ class LattePipeline(VideoSysPipeline):
     ):
         # init sequence parallel
         if sp_size is None:
-            sp_size = dist.get_world_size()
-            dp_size = 1
+            dp_size = dist.get_world_size()
+            sp_size = 1
         else:
             assert (
                 dist.get_world_size() % sp_size == 0
@@ -860,7 +859,7 @@ class LattePipeline(VideoSysPipeline):
             latents, epsilon = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)
             token_index = stu_model.index_filter(
                 epsilon, self.coef, 
-                sparse_flag=(warm_steps-1<=i<self._num_timesteps-1), 
+                sparse_flag=(warm_steps-1<=i<num_inference_steps-1), 
                 first_stage_flag=(i<first_stage_end-1),
             )
                 

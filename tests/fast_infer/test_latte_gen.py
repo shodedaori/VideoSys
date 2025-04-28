@@ -1,6 +1,7 @@
 import pytest
 
 from videosys import LatteConfig, VideoSysEngine
+from videosys.pipelines.latte.pipeline_stu_latte import LatteSTUConfig
 from videosys.utils.test import empty_cache
 
 
@@ -15,5 +16,21 @@ def test_base():
     engine.save_video(video, f"./test_outputs/Latte/{output_title}_base.mp4")
 
 
+@empty_cache
+def test_stu():
+    my_filter = 'pframe'
+    config = LatteSTUConfig(
+        stu_coef=0.5,
+        stu_filter=my_filter,
+    )
+    engine = VideoSysEngine(config)
+
+    prompt = "Sunset over the sea."
+    video = engine.generate(prompt, seed=0).video[0]
+    output_title = prompt.replace(" ", "_")[:20]
+    engine.save_video(video, f"./test_outputs/Latte/{output_title}_{my_filter}.mp4")
+
+
 if __name__ == "__main__":
-    test_base()
+    # test_base()
+    test_stu()
