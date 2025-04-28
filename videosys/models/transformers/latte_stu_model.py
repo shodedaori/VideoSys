@@ -37,6 +37,8 @@ from videosys.core.parallel_mgr import ParallelManager
 from videosys.utils.utils import batch_func
 from videosys.models.modules.la_stu_attn import QKVCache
 from videosys.models.modules.la_stu_block import BasicTransformerBlock, BasicTransformerBlock_, AdaLayerNormSingle
+from videosys.models.transformers.utils import ShorttermWindow, PatchGather
+from videosys.models.transformers.stu_model import STUBase
 
 
 @dataclass
@@ -609,3 +611,85 @@ class LatteT2V(ModelMixin, ConfigMixin):
         x = gather_sequence(x, self.parallel_manager.sp_group, dim=1, grad_scale="up", pad=get_pad("temporal"))
         x = x.reshape(-1, *x.shape[2:])
         return x
+
+
+class LatteSTU(STUBase):
+    def __init__(self, model: LatteT2V, filter_method="random_token"):
+        super().__init__(model=model, filter_method=filter_method)
+        self.cache = None
+        self.patch_gather = None
+
+    def init_generate_cache(self, x):
+        B, C, T, Hp, Wp = x.shape
+        # assert B == 1, "The batch size should be 1 now"
+
+        B = 2
+        p = self.model.patch_size
+        H = Hp // p
+        W = Wp // p
+        S = H * W
+
+        self.spat_size = S
+        self.temp_size = T
+        self.height = H
+        self.width = W
+        self.frame_update_counter = torch.zeros(T, dtype=torch.int16, device=x.device)
+
+        self.sample_shape = (B, C, T, Hp, Wp)
+
+        dtype = self.model.pos_embed.proj.weight.dtype
+        device = self.model.pos_embed.proj.weight.device
+
+        # fuse projections in attention blocks
+        for b1, b2 in zip(self.model.transformer_blocks, self.model.temporal_transformer_blocks):
+            b1.attn1.fuse_projections()
+            b2.attn1.fuse_projections()
+
+        # init cache
+        self.model.set_2d_temp_embed(x)
+        self.model.set_token_level_cache(x)
+        
+        inner_dim = self.model.inner_dim
+        self.cache = []
+        for _ in range(self.model.config.num_layers):
+            spatial_self_attn_cache = QKVCache(3, B, T, S, inner_dim, dtype=dtype, device=device)
+            spatial_cross_attn_cache = QKVCache(1, B, T, S, inner_dim, dtype=dtype, device=device)
+            temporal_self_attn_cache = QKVCache(3, B, S, T, inner_dim, dtype=dtype, device=device)
+            self.cache.append((temporal_self_attn_cache, (spatial_self_attn_cache, spatial_cross_attn_cache)))
+        
+        # init patch gather
+        self.patch_gather = PatchGather(patch_size=(1, p, p))
+        self.patch_gather = self.patch_gather.to(dtype=torch.float32, device=x.device)
+
+        # init dual filter counter
+        self.filter_counter = 0
+
+        # init short-term window
+        if self.filter_method_int >= 3:
+            self.window_length = 4
+            self.window = ShorttermWindow(x, self.window_length)
+
+    def generate_check(self, x):
+        assert self.sample_shape == tuple(x.shape), "The shape of x is not the same as the cache shape"
+    
+    def to_bcthw(self, x):
+        return x
+
+    def get_patch_size(self):
+        return (1, self.model.patch_size, self.model.patch_size)
+    
+    def get_thw(self, x):
+        return (x.size(2), x.size(3), x.size(4))
+
+    @torch.no_grad()
+    # ADD use cache parameter
+    def forward(self, *args, **kwargs):
+        use_cache = kwargs.get("use_cache", False)
+        if use_cache and self.cache is not None:
+            x = kwargs.get("hidden_states", None)
+            if x is None:
+                x = args[0]
+            self.generate_check(x)
+            kwargs["cache_list"] = self.cache
+        
+        return self.model(*args, **kwargs)

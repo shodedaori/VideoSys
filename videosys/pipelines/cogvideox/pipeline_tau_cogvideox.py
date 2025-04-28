@@ -87,7 +87,7 @@ class CogVideoXTauConfig:
         enable_pab: bool = False,
         
         ti_coef: float = 1.0,
-        ti_filter: str = "constant",
+        ti_filter: str = "random_frame",
     ):
         self.model_path = model_path
         self.pipeline_cls = CogVideoXTauPipeline
