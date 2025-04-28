@@ -10,7 +10,9 @@ def test_base():
     config = LatteConfig()
     engine = VideoSysEngine(config)
 
-    prompt = "Sunset over the sea."
+    # prompt = "Sunset over the sea."
+    prompt = "A bear and a zebra are playing chess in a park."
+    
     video = engine.generate(prompt, seed=0).video[0]
     output_title = prompt.replace(" ", "_")[:20]
     engine.save_video(video, f"./test_outputs/Latte/{output_title}_base.mp4")
@@ -25,8 +27,9 @@ def test_stu():
     )
     engine = VideoSysEngine(config)
 
-    prompt = "Sunset over the sea."
-    video = engine.generate(prompt, seed=0).video[0]
+    # prompt = "Sunset over the sea."
+    prompt = "A bear and a zebra are playing chess in a park."
+    video = engine.generate(prompt, seed=0, verbose=False).video[0]
     output_title = prompt.replace(" ", "_")[:20]
     engine.save_video(video, f"./test_outputs/Latte/{output_title}_{my_filter}.mp4")
 

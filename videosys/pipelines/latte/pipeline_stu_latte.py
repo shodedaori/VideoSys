@@ -814,7 +814,7 @@ class LattePipeline(VideoSysPipeline):
                 model_args["token_index"] = (None, None)
 
             if verbose:
-                update_mask = stu_model.get_update_mask(latents, model_args['token_index'])
+                update_mask = stu_model.get_update_mask(latents, model_args['token_index'][1])
 
             latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
             latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
@@ -873,7 +873,7 @@ class LattePipeline(VideoSysPipeline):
                     callback(step_idx, t, latents)
 
         if verbose:
-            save_obj(save_list, "./exp/", f"cogvideox")
+            save_obj(save_list, "./exp/", f"latte")
 
         if not output_type == "latents":
             if latents.shape[2] == 1:  # image
