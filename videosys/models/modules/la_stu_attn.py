@@ -108,7 +108,7 @@ class LatteAttnProcessor(AttnProcessor2_0):
 
         else: # cross-attention
             if kvcache is not None:
-                query = kvcache.update([query], token_index=token_index)  # [B, SUB, CONTEXT, HIDDEN]
+                query = kvcache.update([query], token_index=token_index)[0]  # [B, SUB, CONTEXT, HIDDEN]
             else:
                 query = query.view(batch_size, sub_batch_size, context_length, -1)
 

@@ -301,9 +301,11 @@ class LatteT2V(ModelMixin, ConfigMixin):
     def _set_gradient_checkpointing(self, module, value=False):
         self.gradient_checkpointing = value
 
-    def set_2d_temp_embed(self, spatial_size):
-        temp_embed_2d = repeat(self.temp_pos_embed, "f d -> f s d", s=spatial_size).contiguous()
-        self.temp_embed_2d = temp_embed_2d.view(-1, temp_embed_2d.size(-1))
+    def set_2d_temp_embed(self, x):
+        height, width = x.shape[-2] // self.patch_size, x.shape[-1] // self.patch_size
+        num_patches = height * width
+        temp_embed_2d = repeat(self.temp_pos_embed, "b f d -> b f s d", s=num_patches).contiguous()
+        self.register_buffer("temp_embed_2d", temp_embed_2d.view(temp_embed_2d.size(0), -1, temp_embed_2d.size(-1)), persistent=False)
     
     def set_token_level_cache(self, x):
         height, width = x.shape[-2] // self.patch_size, x.shape[-1] // self.patch_size
@@ -473,8 +475,8 @@ class LatteT2V(ModelMixin, ConfigMixin):
                 ).contiguous()
 
         # prepare timesteps for spatial and temporal block
-        timestep_spatial = repeat(timestep, "b d -> (b f) d", f=frame + use_image_num).contiguous()
-        timestep_temp = repeat(timestep, "b d -> (b p) d", p=num_patches).contiguous()
+        # timestep_spatial = repeat(timestep, "b d -> (b f) d", f=frame + use_image_num).contiguous()
+        # timestep_temp = repeat(timestep, "b d -> (b p) d", p=num_patches).contiguous()
 
         if self.parallel_manager.sp_size > 1:
             set_pad("temporal", frame + use_image_num, self.parallel_manager.sp_group)
@@ -490,9 +492,9 @@ class LatteT2V(ModelMixin, ConfigMixin):
 
         context_length = hidden_states.size(1)  # num_patches
         frame_length = hidden_states.size(0) // input_batch_size  # num_frames
-        hidden_states = hidden_states.view(input_batch_size, frame_length * context_length, hidden_states.size(-1))
-        if token_index is not None:
-            hidden_states = hidden_states.index_select(1, token_index)
+        hidden_states = rearrange(hidden_states, "(b f) p c -> b (f p) c", b=input_batch_size, f=frame_length).contiguous()
+        if token_index[1] is not None:
+            hidden_states = hidden_states.index_select(1, token_index[1])
 
 
         for i, (spatial_block, temp_block) in enumerate(zip(self.transformer_blocks, self.temporal_transformer_blocks)):
@@ -507,7 +509,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                 attention_mask,
                 encoder_hidden_states_spatial,
                 encoder_attention_mask,
-                timestep_spatial,
+                timestep,
                 cross_attention_kwargs,
                 class_labels,
                 attn_cache=spatial_cache,
@@ -518,9 +520,6 @@ class LatteT2V(ModelMixin, ConfigMixin):
 
             if enable_temporal_attentions:
                 temporal_index = token_index[0]
-                if temporal_index is None:
-                    hidden_states = rearrange(hidden_states, "b (f s) c -> b (s f) c", b=input_batch_size, f=frame_length).contiguous()
-
                 assert use_image_num == 0, "use_image_num != 0 is not supported for temporal attention."
 
                 # TODO: change this
@@ -528,15 +527,17 @@ class LatteT2V(ModelMixin, ConfigMixin):
                     if temporal_index is None:
                         hidden_states = hidden_states + self.temp_embed_2d
                     else:
-                        temp_embed_index = self.temp_embed_2d.index_select(0, spatial_index)
+                        temp_embed_index = self.temp_embed_2d.index_select(1, spatial_index)
                         hidden_states = hidden_states + temp_embed_index
+                
+                if temporal_index is None:
+                    hidden_states = rearrange(hidden_states, "b (f s) c -> b (s f) c", b=input_batch_size, f=frame_length).contiguous()
 
                 hidden_states = temp_block(
                     hidden_states,
                     None,  # attention_mask
                     None,  # encoder_hidden_states
-                    None,  # encoder_attention_mask
-                    timestep_temp,
+                    timestep,
                     cross_attention_kwargs,
                     class_labels,
                     attn_cache=temporal_cache,
@@ -550,8 +551,8 @@ class LatteT2V(ModelMixin, ConfigMixin):
 
         if cache_list is not None:
             spatial_index = token_index[1]
-            hidden_states = self.token_level_cache.update_cache(hidden_states, spatial_index)
-            hidden_states = hidden_states.view(input_batch_size * frame_length, context_length, hidden_states.size(-1))
+            hidden_states = self.token_level_cache.update([hidden_states], spatial_index)[0]
+        hidden_states = hidden_states.view(input_batch_size * frame_length, context_length, hidden_states.size(-1))
 
         if self.parallel_manager.sp_size > 1:
             hidden_states = self.gather_from_second_dim(hidden_states, input_batch_size)

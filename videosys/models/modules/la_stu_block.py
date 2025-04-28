@@ -515,6 +515,7 @@ class BasicTransformerBlock_(nn.Module):
 
         # 2. Cross-Attn
         # No cross attention in this block.
+        assert cross_attention_dim is None
 
         # 3. Feed-forward
         # if not self.use_ada_layer_norm_single:
@@ -585,9 +586,6 @@ class BasicTransformerBlock_(nn.Module):
 
         if self.pos_embed is not None:
             norm_hidden_states = self.pos_embed(norm_hidden_states)
-
-        if self.parallel_manager.sp_size > 1:
-            norm_hidden_states = self.dynamic_switch(norm_hidden_states, to_spatial_shard=True)
 
         attn_output = self.attn1(
             norm_hidden_states,
