@@ -54,6 +54,8 @@ class LatteAttnProcessor(AttnProcessor2_0):
         attention_mask: Optional[torch.Tensor] = None,
         kvcache: Optional[QKVCache] = None,
         token_index: Optional[torch.Tensor] = None,
+        sub_batch_size: Optional[int] = None,
+        context_length: Optional[int] = None,
         *args, **kwargs
     ) -> torch.Tensor:
         if len(args) > 0 or kwargs.get("scale", None) is not None:
@@ -63,9 +65,7 @@ class LatteAttnProcessor(AttnProcessor2_0):
         input_ndim = hidden_states.ndim
         assert input_ndim == 3
 
-        batch_size, sequence_length, _ = (
-            hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
-        )
+        batch_size = hidden_states.size(0)
 
         assert attention_mask is None
         # if attention_mask is not None:
@@ -94,51 +94,55 @@ class LatteAttnProcessor(AttnProcessor2_0):
             value = attn.to_v(encoder_hidden_states)
 
         if encoder_hidden_states is None:  # self-attention
-            if kvcache is not None:
-                
-        else:
-            pass
+            if kvcache is not None:  # update cache
+                query, key, value = kvcache.update([query, key, value], token_index=token_index)  # [B, SUB, CONTEXT, HIDDEN]
+            else:
+                query = query.view(batch_size, sub_batch_size, context_length, -1)
+                key = key.view(batch_size, sub_batch_size, context_length, -1)
+                value = value.view(batch_size, sub_batch_size, context_length, -1)
 
+            query = query.view(batch_size * sub_batch_size, context_length, -1)  # [B * SUB, CONTEXT, HIDDEN]
+            key = key.view(batch_size * sub_batch_size, context_length, -1)  # [B * SUB, CONTEXT, HIDDEN]
+            value = value.view(batch_size * sub_batch_size, context_length, -1)  # [B * SUB, CONTEXT, HIDDEN]
+
+        else: # cross-attention
+            if kvcache is not None:
+                query = kvcache.update(query, token_index=token_index)  # [B, SUB, CONTEXT, HIDDEN]
+            else:
+                query = query.view(batch_size, sub_batch_size, context_length, -1)
+
+            query = query.view(batch_size * sub_batch_size, context_length, -1)  # [B * SUB, CONTEXT, HIDDEN]
+
+        parallel_size = batch_size * sub_batch_size
         attn_heads = attn.heads
         inner_dim = key.shape[-1]
         head_dim = inner_dim // attn_heads
 
-        query = query.view(batch_size, -1, attn_heads, head_dim).transpose(1, 2)
-        key = key.view(batch_size, -1, attn_heads, head_dim).transpose(1, 2)
-        value = value.view(batch_size, -1, attn_heads, head_dim).transpose(1, 2)
+        query = query.view(parallel_size, -1, attn_heads, head_dim).transpose(1, 2)  # [B * SUB, HEADS, CONTEXT, HIDDEN]
+        key = key.view(parallel_size, -1, attn_heads, head_dim).transpose(1, 2)  # [B * SUB, HEADS, CONTEXT, HIDDEN]
+        value = value.view(parallel_size, -1, attn_heads, head_dim).transpose(1, 2)  # [B * SUB, HEADS, CONTEXT, HIDDEN]
 
         if attn.norm_q is not None:
             query = attn.norm_q(query)
         if attn.norm_k is not None:
             key = attn.norm_k(key)
 
-        # Apply RoPE if needed
-        if image_rotary_emb is not None:
-            emb_len = image_rotary_emb[0].shape[0]
-            seq_len = query.shape[-2]
-            assert seq_len <= emb_len + text_seq_length, "The sequence length is larger than the rotary embedding length"
-            
-            sq = query[:, :, text_seq_length:]
-            apply_index_rotary_emb(sq, image_rotary_emb, token_index=token_index)
-
-            if not attn.is_cross_attention:
-                key[:, :, text_seq_length : emb_len + text_seq_length] = apply_rotary_emb(
-                    key[:, :, text_seq_length : emb_len + text_seq_length], image_rotary_emb
-                )
-
         hidden_states = F.scaled_dot_product_attention(
             query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
-        )
+        )  # [B * SUB, HEADS, CONTEXT, HIDDEN]
 
-        hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, attn_heads * head_dim)
+        hidden_states = rearrange(hidden_states, "(b s) heads c h -> b (s c) (heads h)", b=batch_size, s=sub_batch_size)
+        if token_index is not None:
+            hidden_states = hidden_states.index_select(1, token_index)
 
         # linear proj
         hidden_states = attn.to_out[0](hidden_states)
         # dropout
         hidden_states = attn.to_out[1](hidden_states)
 
-        encoder_hidden_states, hidden_states = hidden_states.split(
-            [text_seq_length, hidden_states.size(1) - text_seq_length], dim=1
-        )
+        if attn.residual_connection:
+            hidden_states = hidden_states + residual
 
-        return hidden_states, encoder_hidden_states
+        hidden_states = hidden_states / attn.rescale_output_factor
+
+        return hidden_states
