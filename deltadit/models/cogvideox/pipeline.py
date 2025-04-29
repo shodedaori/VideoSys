@@ -34,22 +34,25 @@ from .modules import get_3d_rotary_pos_embed
 from .cogvideox_transformer_3d import CogVideoXTransformer3DModel
 from .scheduler import CogVideoXDDIMScheduler
 
+from deltadit.core.delta_mgr import DELTAConfig, set_delta_manager
 from deltadit.utils.logging import logger
 from deltadit.utils.utils import save_video
 from deltadit.utils.utils import set_seed
 
 
-class CogVideoXPABConfig(PABConfig):
+class CogvideoxDELTAConfig(DELTAConfig):
     def __init__(
         self,
-        spatial_broadcast: bool = True,
-        spatial_threshold: list = [100, 850],
-        spatial_range: int = 2,
+        steps: int = None,
+        delta_skip: bool = None,
+        delta_gap: int = None,
+        delta_threshold=None,
     ):
         super().__init__(
-            spatial_broadcast=spatial_broadcast,
-            spatial_threshold=spatial_threshold,
-            spatial_range=spatial_range,
+            steps=steps,
+            delta_skip=delta_skip,
+            delta_threshold=delta_threshold,
+            delta_gap=delta_gap,
         )
 
 
@@ -105,9 +108,9 @@ class CogVideoXConfig:
         # ======= memory =======
         cpu_offload: bool = False,
         vae_tiling: bool = True,
-        # ======= pab ========
-        enable_pab: bool = False,
-        pab_config=CogVideoXPABConfig(),
+        # ======= delta ========
+        enable_delta: bool = False,
+        delta_config: PABConfig = CogvideoxDELTAConfig(),
     ):
         self.model_path = model_path
         self.pipeline_cls = CogVideoXPipeline
@@ -116,9 +119,9 @@ class CogVideoXConfig:
         # ======= memory ========
         self.cpu_offload = cpu_offload
         self.vae_tiling = vae_tiling
-        # ======= pab ========
-        self.enable_pab = enable_pab
-        self.pab_config = pab_config
+        # ======= delta ========
+        self.enable_delta = enable_delta
+        self.delta_config = delta_config
 
 
 class CogVideoXPipeline(VideoSysPipeline):
@@ -180,9 +183,9 @@ class CogVideoXPipeline(VideoSysPipeline):
         if config.vae_tiling:
             vae.enable_tiling()
 
-        # pab
-        if config.enable_pab:
-            set_pab_manager(config.pab_config)
+        # delta
+        if config.enable_delta:
+            set_delta_manager(config.delta_config)
 
         self.vae_scale_factor_spatial = (
             2 ** (len(self.vae.config.block_out_channels) - 1) if hasattr(self, "vae") and self.vae is not None else 8
@@ -215,7 +218,7 @@ class CogVideoXPipeline(VideoSysPipeline):
             dp_size = dist.get_world_size() // sp_size
 
         # transformer parallel
-        self.transformer.enable_parallel(dp_size, sp_size, enable_cp)
+        # self.transformer.enable_parallel(dp_size, sp_size, enable_cp)
 
     def _get_t5_prompt_embeds(
         self,
@@ -703,7 +706,9 @@ class CogVideoXPipeline(VideoSysPipeline):
                     encoder_hidden_states=prompt_embeds,
                     timestep=timestep,
                     image_rotary_emb=image_rotary_emb,
+                    timestep_index=i,
                     return_dict=False,
+                    verbose=True,
                 )[0]
                 noise_pred = noise_pred.float()
 

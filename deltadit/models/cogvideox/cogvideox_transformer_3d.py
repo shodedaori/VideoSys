@@ -22,23 +22,21 @@ from diffusers.utils import is_torch_version
 from diffusers.utils.torch_utils import maybe_allow_in_graph
 from torch import nn
 
-from deltadit.core.comm import (
-    all_to_all_with_pad,
-    gather_sequence,
-    get_spatial_pad,
-    get_temporal_pad,
-    set_spatial_pad,
-    set_temporal_pad,
-    split_sequence,
+from deltadit.core.delta_mgr import (
+    get_cache,
+    if_skip_delta,
+    if_skip_middle_block,
+    is_skip_first_block,
+    is_skip_last_block,
+    save_end_cache,
+    save_start_cache,
 )
+
 from deltadit.core.pab_mgr import (
     enable_pab,
-    get_mlp_output,
     if_broadcast_cross,
-    if_broadcast_mlp,
     if_broadcast_spatial,
     if_broadcast_temporal,
-    save_mlp_output,
 )
 from deltadit.core.parallel_mgr import enable_sequence_parallel, get_sequence_parallel_group
 
@@ -409,7 +407,9 @@ class CogVideoXTransformer3DModel(ModelMixin, ConfigMixin):
         timestep: Union[int, float, torch.LongTensor],
         timestep_cond: Optional[torch.Tensor] = None,
         image_rotary_emb: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        timestep_index: Optional[int] = None,
         return_dict: bool = True,
+        verbose: bool = False,
     ):
         batch_size, num_frames, channels, height, width = hidden_states.shape
 
@@ -439,15 +439,48 @@ class CogVideoXTransformer3DModel(ModelMixin, ConfigMixin):
         hidden_states = hidden_states[:, text_seq_length:]
 
         # 4. Transformer blocks
-        for i, block in enumerate(self.transformer_blocks):
-            
-            hidden_states, encoder_hidden_states = block(
-                hidden_states=hidden_states,
-                encoder_hidden_states=encoder_hidden_states,
-                temb=emb,
-                image_rotary_emb=image_rotary_emb,
-                timestep=timesteps if enable_pab() else None,
-            )
+        if if_skip_delta(timestep_index):
+            if verbose:
+                print(f"t: {timestep_index} | skip")
+            for i, block in enumerate(self.transformer_blocks):
+                if if_skip_middle_block(timestep_index, i):
+                    if verbose:
+                        print(f"block_id: {i} | skip")
+                    continue
+                elif is_skip_last_block(i):
+                    if verbose:
+                        print(f"block_id: {i} | add cache")
+                    hidden_states = hidden_states + get_cache()
+                else:
+                    hidden_states, encoder_hidden_states = block(
+                        hidden_states=hidden_states,
+                        encoder_hidden_states=encoder_hidden_states,
+                        temb=emb,
+                        image_rotary_emb=image_rotary_emb,
+                        timestep=timesteps if enable_pab() else None,
+                    )
+        else:
+            if verbose:
+                print(f"t: {timestep_index} | keep")
+            for i, block in enumerate(self.transformer_blocks):
+                if is_skip_first_block(i):
+                    if verbose:
+                        print(f"block_id: {i} | save_start_cache")
+                    save_start_cache(i, hidden_states)
+
+                hidden_states, encoder_hidden_states = block(
+                    hidden_states=hidden_states,
+                    encoder_hidden_states=encoder_hidden_states,
+                    temb=emb,
+                    image_rotary_emb=image_rotary_emb,
+                    timestep=timesteps if enable_pab() else None,
+                )
+
+                if is_skip_last_block(i):
+                    if verbose:
+                        print(f"block_id: {i} | save_end_cache")
+                    save_end_cache(i, hidden_states)      
+
 
         if not self.config.use_rotary_positional_embeddings:
             # CogVideoX-2B

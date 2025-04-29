@@ -12,7 +12,7 @@ from collections.abc import Iterable
 
 import torch
 import torch.distributed as dist
-from colossalai.checkpoint_io import GeneralCheckpointIO
+# from colossalai.checkpoint_io import GeneralCheckpointIO
 from torch.utils.checkpoint import checkpoint, checkpoint_sequential
 from torchvision.datasets.utils import download_url
 
@@ -44,6 +44,7 @@ pretrained_models = {
 
 
 def load_from_sharded_state_dict(model, ckpt_path, model_name="model", strict=False):
+    pass
     ckpt_io = GeneralCheckpointIO()
     ckpt_io.load_model(model, os.path.join(ckpt_path, model_name), strict=strict)
 
