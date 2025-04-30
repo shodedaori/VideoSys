@@ -17,6 +17,9 @@ def requires_grad(model: torch.nn.Module, flag: bool = True) -> None:
 
 
 def set_seed(seed):
+    if seed == -1:
+        seed = random.randint(0, 1000000)    
+    
     random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
     np.random.seed(seed)
@@ -63,6 +66,6 @@ def save_video(video, output_path, fps):
     Save a video to disk.
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    if dist.get_rank() == 0:
-        imageio.mimwrite(output_path, video, fps=fps)
+    # if dist.get_rank() == 0:
+    imageio.mimwrite(output_path, video, fps=fps)
     dist.barrier()

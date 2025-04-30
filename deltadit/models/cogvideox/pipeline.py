@@ -199,10 +199,7 @@ class CogVideoXPipeline(VideoSysPipeline):
         self._set_parallel()
 
     def _set_seed(self, seed):
-        if dist.get_world_size() == 1:
-            set_seed(seed)
-        else:
-            set_seed(seed, self.transformer.parallel_manager.dp_rank)
+        set_seed(seed)
 
     def _set_parallel(
         self, dp_size: Optional[int] = None, sp_size: Optional[int] = None, enable_cp: Optional[bool] = False
@@ -708,7 +705,7 @@ class CogVideoXPipeline(VideoSysPipeline):
                     image_rotary_emb=image_rotary_emb,
                     timestep_index=i,
                     return_dict=False,
-                    verbose=True,
+                    verbose=False,
                 )[0]
                 noise_pred = noise_pred.float()
 
