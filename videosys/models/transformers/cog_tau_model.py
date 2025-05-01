@@ -460,6 +460,23 @@ class CogTauTransformer3DModel(ModelMixin, ConfigMixin):
 
         self.gradient_checkpointing = False
 
+        # parallel
+        self.parallel_manager = None
+        
+    def enable_parallel(self, dp_size, sp_size, enable_cp):
+        # update cfg parallel
+        if enable_cp and sp_size % 2 == 0:
+            sp_size = sp_size // 2
+            cp_size = 2
+        else:
+            cp_size = 1
+
+        self.parallel_manager: ParallelManager = ParallelManager(dp_size, cp_size, sp_size)
+
+        for _, module in self.named_modules():
+            if hasattr(module, "parallel_manager"):
+                module.parallel_manager = self.parallel_manager
+
     def _set_gradient_checkpointing(self, module, value=False):
         self.gradient_checkpointing = value
 
