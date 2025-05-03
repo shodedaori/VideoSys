@@ -164,6 +164,7 @@ coverage.xml
 
 pretrained
 samples
+results
 cache_dir
 test_outputs
 datasets

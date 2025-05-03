@@ -78,5 +78,5 @@ def test_base(num_gpus):
 
 
 if __name__ == '__main__':
-    test_base(1)
+    # test_base(1)
     test_tau(1)
