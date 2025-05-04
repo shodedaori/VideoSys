@@ -668,8 +668,17 @@ class CogVideoXTauPipeline(VideoSysPipeline):
 
         tau_model = CogVideoSTU(self.transformer, self.filter)
         tau_model.init_generate_cache(latents, max_sequence_length)
-        warm_steps = min(math.ceil(self._num_timesteps / 3), 10)
-        first_stage_end = warm_steps + math.ceil((self._num_timesteps - warm_steps) / 2)
+        
+        if self.coef >= 1:
+            warm_steps = num_inference_steps
+        else:
+            warm_steps = min(math.ceil(num_inference_steps / 3), 10)
+        
+        if self.coef >= 1:
+            first_stage_end = num_inference_steps + 1
+        else:
+            first_stage_end = warm_steps + math.ceil((num_inference_steps - warm_steps) / 2)
+
         token_index = None
         model_args = dict()
         print("TAU inference acceleration is enabled.")

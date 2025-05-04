@@ -792,8 +792,17 @@ class LattePipeline(VideoSysPipeline):
 
         stu_model = LatteSTU(self.transformer, self.filter)
         stu_model.init_generate_cache(latents)
-        warm_steps = min(math.ceil(num_inference_steps / 3), 10)
-        first_stage_end = warm_steps + math.ceil((num_inference_steps - warm_steps) / 2)
+        
+        if self.coef >= 1:
+            warm_steps = num_inference_steps
+        else:
+            warm_steps = min(math.ceil(num_inference_steps / 3), 10)
+        
+        if self.coef >= 1:
+            first_stage_end = num_inference_steps + 1
+        else:
+            first_stage_end = warm_steps + math.ceil((num_inference_steps - warm_steps) / 2)
+        
         token_index = (None, None)
         model_args = dict()
         print("STU inference acceleration is enabled.")

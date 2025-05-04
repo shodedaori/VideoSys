@@ -11,12 +11,13 @@ from videosys.utils.utils import set_seed
 
 @empty_cache
 def test_tau(num_gpus):
+    my_coef = 1.0
     my_filter = 'pframe'
     config = OpenSoraConfig(
         num_gpus=num_gpus,
         num_sampling_steps=32,
         enable_ti=True, 
-        ti_coef=0.5,
+        ti_coef=my_coef,
         ti_filter=my_filter)
     engine = VideoSysEngine(config)
 
@@ -31,7 +32,7 @@ def test_tau(num_gpus):
     # prompt = "A panda standing on a surfboard in the ocean in sunset."
     # prompt = "a car on the right of a motorcycle, front view"
     # prompt = "A vintage red phone booth stands alone on a cobblestone street, bathed in the soft glow of a nearby streetlamp. The booth's glass panels reflect the dim light, revealing a glimpse of the old rotary phone inside. Surrounding the booth, ivy climbs up the nearby brick wall, adding a touch of nature to the urban setting. The scene is quiet, with a gentle mist rolling in, creating an air of mystery and nostalgia. The phone booth, a relic of the past, stands as a silent witness to countless stories and conversations, its presence evoking a sense of timelessness."
-    prompt = "A person is petting a cat"
+    prompt = "A person is petting an orange cat"
     # prompt = "A person is petting an animal (not a cat)"
     # prompt = "A dramatic, straight-on close-up shot reveals the face of a deep-sea diver inside an old-fashioned brass diving helmet."
     # prompt = "A golden retriever puppy wearing a superhero outfit complete with a mask and cape stands perched on the top of the empire state building in winter, overlooking the city it protects at night."
@@ -40,10 +41,10 @@ def test_tau(num_gpus):
     # prompt = "An animated claymation video of a plant and his friends."
     # prompt = "A cozy isometric retro futuristic miniature world with spaceships, comets and beautiful planets in the distant background, gorgeously rendered in 8k at maximum quality, tilt shift photography."
 
-    set_seed(0)
-    video = engine.generate(prompt, blur3d=False, verbose=False).video[0]
+    set_seed(2)
+    video = engine.generate(prompt, blur3d=False, verbose=True).video[0]
     output_title = prompt.replace(" ", "_")[:20]
-    engine.save_video(video, f"./test_outputs/{output_title}_{my_filter}.mp4")
+    engine.save_video(video, f"./test_outputs/Opensora/{output_title}_{my_filter}_{my_coef}.mp4")
 
 
 @empty_cache
@@ -62,7 +63,7 @@ def test_base(num_gpus):
     # prompt = "A panda standing on a surfboard in the ocean in sunset."
     # prompt = "a car on the right of a motorcycle, front view"
     # prompt = "A vintage red phone booth stands alone on a cobblestone street, bathed in the soft glow of a nearby streetlamp. The booth's glass panels reflect the dim light, revealing a glimpse of the old rotary phone inside. Surrounding the booth, ivy climbs up the nearby brick wall, adding a touch of nature to the urban setting. The scene is quiet, with a gentle mist rolling in, creating an air of mystery and nostalgia. The phone booth, a relic of the past, stands as a silent witness to countless stories and conversations, its presence evoking a sense of timelessness."
-    prompt = "A person is petting a cat"
+    prompt = "A person is petting a orange cat"
     # prompt = "A person is petting an animal (not a cat)"
     # prompt = "A dramatic, straight-on close-up shot reveals the face of a deep-sea diver inside an old-fashioned brass diving helmet."
     # prompt = "A golden retriever puppy wearing a superhero outfit complete with a mask and cape stands perched on the top of the empire state building in winter, overlooking the city it protects at night."
@@ -71,7 +72,7 @@ def test_base(num_gpus):
     # prompt = "An animated claymation video of a plant and his friends."
     # prompt = "A cozy isometric retro futuristic miniature world with spaceships, comets and beautiful planets in the distant background, gorgeously rendered in 8k at maximum quality, tilt shift photography."
 
-    set_seed(0)
+    set_seed(1)
     video = engine.generate(prompt).video[0]
     output_title = prompt.replace(" ", "_")[:20]
     engine.save_video(video, f"./test_outputs/{output_title}_base.mp4")

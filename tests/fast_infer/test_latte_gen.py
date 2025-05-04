@@ -28,7 +28,8 @@ def test_stu():
     engine = VideoSysEngine(config)
 
     # prompt = "Sunset over the sea."
-    prompt = "A bear and a zebra are playing chess in a park."
+    prompt = "two bears are playing chess in a park."
+    # prompt = "a dog is sitting on a table in a cafe"
     video = engine.generate(prompt, seed=0, verbose=False).video[0]
     output_title = prompt.replace(" ", "_")[:20]
     engine.save_video(video, f"./test_outputs/Latte/{output_title}_{my_filter}.mp4")
