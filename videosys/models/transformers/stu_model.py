@@ -200,6 +200,26 @@ class STUBase(nn.Module):
             # y = torch.norm(y - y_mean, dim=1, keepdim=True) ** 2  # [B, 1, To, Ho, Wo]
             
             y = self.patch_gather(y, flatten_flag=False).squeeze(1)  # [B, 1, T, H, W]
+            y = torch.mean(y, dim=1).view(-1) # [T * S]
+
+            return self.channel_level_select(y, ratio, method="largest")
+        else:
+            y = torch.sum(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
+            y = self.patch_gather(y).view(-1)  # [T, S]
+            
+            return self.global_select(y, ratio, method="per_frame_largest")
+
+        if self.filter_counter == 2:
+            # y = torch.sqrt(y)
+            prev_y = y[:, :, :-1, :, :]  # [B, C, To-1, Ho, Wo]
+            next_y = y[:, :, 1:, :, :]   # [B, C, To-1, Ho, Wo]
+            # y = (torch.norm(next_y - prev_y, dim=1) ** 2).unsqueeze(1)  # [B, 1, To-1, Ho, Wo]
+            y = torch.norm(next_y - prev_y, dim=1, p=1).unsqueeze(1)  # [B, 1, To-1, Ho, Wo]
+            
+            # y_mean = torch.mean(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
+            # y = torch.norm(y - y_mean, dim=1, keepdim=True) ** 2  # [B, 1, To, Ho, Wo]
+            
+            y = self.patch_gather(y, flatten_flag=False).squeeze(1)  # [B, 1, T, H, W]
             y = torch.mean(y, dim=1).view(-1) # [S]
 
             return self.channel_level_select(y, ratio, method="largest")

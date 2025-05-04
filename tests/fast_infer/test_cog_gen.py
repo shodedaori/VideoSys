@@ -55,11 +55,11 @@ def test_pab(num_gpus, model_path):
 @pytest.mark.parametrize("model_path", ["THUDM/CogVideoX-2b", "THUDM/CogVideoX-5b"])
 @empty_cache
 def test_tau(num_gpus, model_path):
-    my_filter = 'pframe'
+    my_filter = 'shortterm'
     config = CogVideoXTauConfig(
         model_path=model_path, 
         num_gpus=num_gpus,
-        ti_coef=1.0,
+        ti_coef=0.5,
         ti_filter=my_filter
     )
     engine = VideoSysEngine(config)
@@ -67,12 +67,12 @@ def test_tau(num_gpus, model_path):
     # prompt = "Sunset over the sea."
     # prompt = "A person is petting an animal (not a cat)"
     # prompt = "A person is petting a dog"
-    # prompt = "A panda standing on a surfboard in the ocean in sunset."
+    prompt = "A panda standing on a surfboard in the ocean in sunset."
     # prompt = "A sleek, modern laptop, its screen displaying a vibrant, paused scene, sits on a minimalist wooden desk. The room is bathed in soft, natural light filtering through sheer curtains, casting gentle shadows. The laptop's keyboard is mid-illumination, with a faint glow emanating from the keys, suggesting a moment frozen in time. Dust particles are suspended in the air, caught in the light, adding to the stillness. A steaming cup of coffee beside the laptop remains untouched, with wisps of steam frozen in mid-air. The scene captures a serene, almost magical pause in an otherwise bustling workspace."
     # prompt = "korean popular dish, samgyopsal, is being baked on a stone plate with kimchi. close-up, macro shot."
     # prompt = "giant army with swords and bows in the desert, top view from afar"
     # prompt = "A bear and a zebra."
-    prompt = "two bears are playing chess in a park."
+    # prompt = "two bears are playing chess in a park."
 
     video = engine.generate(prompt, num_inference_steps=50, seed=0, verbose=True).video[0]
     output_title = prompt.replace(" ", "_")[:20]

@@ -20,7 +20,7 @@ def test_base():
 
 @empty_cache
 def test_stu():
-    my_filter = 'pframe'
+    my_filter = 'shortterm'
     config = LatteSTUConfig(
         stu_coef=0.5,
         stu_filter=my_filter,
