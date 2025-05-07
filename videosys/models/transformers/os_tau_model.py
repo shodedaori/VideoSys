@@ -33,6 +33,7 @@ from videosys.models.modules.embeddings import (
 )
 from videosys.utils.utils import batch_func
 from videosys.models.modules.os_tau_attn import QKVCache, OpenSoraAttention, OpenSoraMultiHeadCrossAttention
+from videosys.models.modules.rotary import RotaryEmbedding
 from videosys.models.transformers.utils import PatchGather, ShorttermWindow
 from videosys.models.transformers.stu_model import STUBase
 
@@ -337,9 +338,6 @@ class STDiT3C(PreTrainedModel):
         self.patch_size = config.patch_size
         self.input_sq_size = config.input_sq_size
         self.pos_embed = OpenSoraPositionEmbedding2D(config.hidden_size)
-
-        from rotary_embedding_torch import RotaryEmbedding
-
         self.rope = RotaryEmbedding(dim=self.hidden_size // self.num_heads)
 
         # embedding
