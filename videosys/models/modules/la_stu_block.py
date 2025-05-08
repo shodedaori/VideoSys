@@ -9,9 +9,7 @@
 from typing import Any, Dict, Optional, Tuple
 
 import torch
-import torch.nn.functional as F
 from diffusers.models.activations import GEGLU, GELU, ApproximateGELU
-from diffusers.models.attention_processor import Attention
 from diffusers.models.embeddings import (
     ImagePositionalEmbeddings,
     PatchEmbed,
@@ -26,7 +24,7 @@ from diffusers.utils import USE_PEFT_BACKEND, BaseOutput, deprecate
 from diffusers.utils.torch_utils import maybe_allow_in_graph
 from torch import nn
 
-from videosys.models.modules.la_stu_attn import QKVCache, LatteAttnProcessor
+from videosys.models.modules.la_stu_attn import QKVCache, LatteAttnProcessor, STUAttention
 
 
 class FeedForward(nn.Module):
@@ -196,7 +194,7 @@ class BasicTransformerBlock(nn.Module):
         else:
             self.norm1 = nn.LayerNorm(dim, elementwise_affine=norm_elementwise_affine, eps=norm_eps)
 
-        self.attn1 = Attention(
+        self.attn1 = STUAttention(
             query_dim=dim,
             heads=num_attention_heads,
             dim_head=attention_head_dim,
@@ -227,7 +225,7 @@ class BasicTransformerBlock(nn.Module):
             else:
                 self.norm2 = nn.LayerNorm(dim, norm_eps, norm_elementwise_affine)
 
-            self.attn2 = Attention(
+            self.attn2 = STUAttention(
                 query_dim=dim,
                 cross_attention_dim=cross_attention_dim if not double_self_attention else None,
                 heads=num_attention_heads,
@@ -283,6 +281,22 @@ class BasicTransformerBlock(nn.Module):
         self._chunk_size = chunk_size
         self._chunk_dim = dim
 
+    @torch.compile()
+    def ada_norm_single_slice(self, hidden_states, timestep, batch_size):
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
+            self.scale_shift_table[None] + timestep.reshape(batch_size, 6, -1)
+        ).chunk(6, dim=1)
+        norm_hidden_states = self.norm1(hidden_states)
+        norm_hidden_states = norm_hidden_states * (1 + scale_msa) + shift_msa
+        norm_hidden_states = norm_hidden_states.squeeze(1)
+        return gate_msa, shift_mlp, scale_mlp, gate_mlp, norm_hidden_states
+
+    @torch.compile()
+    def ada_norm_single_shift(self, hidden_states, shift_mlp, scale_mlp):
+        norm_hidden_states = self.norm2(hidden_states)
+        norm_hidden_states = norm_hidden_states * (1 + scale_mlp) + shift_mlp
+        return norm_hidden_states
+
     def forward(
         self,
         hidden_states: torch.FloatTensor,
@@ -316,12 +330,9 @@ class BasicTransformerBlock(nn.Module):
         elif self.norm_type == "ada_norm_continuous":
             norm_hidden_states = self.norm1(hidden_states, added_cond_kwargs["pooled_text_emb"])
         elif self.norm_type == "ada_norm_single":
-            shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-                self.scale_shift_table[None] + timestep.reshape(batch_size, 6, -1)
-            ).chunk(6, dim=1)
-            norm_hidden_states = self.norm1(hidden_states)
-            norm_hidden_states = norm_hidden_states * (1 + scale_msa) + shift_msa
-            norm_hidden_states = norm_hidden_states.squeeze(1)
+            gate_msa, shift_mlp, scale_mlp, gate_mlp, norm_hidden_states = self.ada_norm_single_slice(
+                hidden_states, timestep, batch_size
+            )
         else:
             raise ValueError("Incorrect norm used")
 
@@ -394,8 +405,7 @@ class BasicTransformerBlock(nn.Module):
             norm_hidden_states = norm_hidden_states * (1 + scale_mlp[:, None]) + shift_mlp[:, None]
 
         if self.norm_type == "ada_norm_single":
-            norm_hidden_states = self.norm2(hidden_states)
-            norm_hidden_states = norm_hidden_states * (1 + scale_mlp) + shift_mlp
+            norm_hidden_states = self.ada_norm_single_shift(hidden_states, shift_mlp, scale_mlp)
 
         ff_output = self.ff(norm_hidden_states)
 
@@ -502,7 +512,7 @@ class BasicTransformerBlock_(nn.Module):
         else:
             self.norm1 = nn.LayerNorm(dim, elementwise_affine=norm_elementwise_affine, eps=norm_eps)  # go here
 
-        self.attn1 = Attention(
+        self.attn1 = STUAttention(
             query_dim=dim,
             heads=num_attention_heads,
             dim_head=attention_head_dim,
@@ -542,6 +552,21 @@ class BasicTransformerBlock_(nn.Module):
         self._chunk_size = chunk_size
         self._chunk_dim = dim
 
+    @torch.compile()
+    def ada_norm_single_slice(self, hidden_states, timestep, batch_size):
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
+            self.scale_shift_table[None] + timestep.reshape(batch_size, 6, -1)
+        ).chunk(6, dim=1)
+        norm_hidden_states = self.norm1(hidden_states)
+        norm_hidden_states = norm_hidden_states * (1 + scale_msa) + shift_msa
+        return gate_msa, shift_mlp, scale_mlp, gate_mlp, norm_hidden_states
+
+    @torch.compile()
+    def ada_norm_single_shift(self, hidden_states, shift_mlp, scale_mlp):
+        norm_hidden_states = self.norm3(hidden_states)
+        norm_hidden_states = norm_hidden_states * (1 + scale_mlp) + shift_mlp
+        return norm_hidden_states
+
     def forward(
         self,
         hidden_states: torch.FloatTensor,
@@ -575,12 +600,9 @@ class BasicTransformerBlock_(nn.Module):
         elif self.use_layer_norm:
             norm_hidden_states = self.norm1(hidden_states)
         elif self.use_ada_layer_norm_single:  # go here
-            shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-                self.scale_shift_table[None] + timestep.reshape(batch_size, 6, -1)
-            ).chunk(6, dim=1)
-            norm_hidden_states = self.norm1(hidden_states)
-            norm_hidden_states = norm_hidden_states * (1 + scale_msa) + shift_msa
-            # norm_hidden_states = norm_hidden_states.squeeze(1)
+            gate_msa, shift_mlp, scale_mlp, gate_mlp, norm_hidden_states = self.ada_norm_single_slice(
+                hidden_states, timestep, batch_size
+            )
         else:
             raise ValueError("Incorrect norm used")
 
@@ -616,9 +638,7 @@ class BasicTransformerBlock_(nn.Module):
             norm_hidden_states = norm_hidden_states * (1 + scale_mlp[:, None]) + shift_mlp[:, None]
 
         if self.use_ada_layer_norm_single:
-            # norm_hidden_states = self.norm2(hidden_states)
-            norm_hidden_states = self.norm3(hidden_states)
-            norm_hidden_states = norm_hidden_states * (1 + scale_mlp) + shift_mlp
+            norm_hidden_states = self.ada_norm_single_shift(hidden_states, shift_mlp, scale_mlp)
 
         if self._chunk_size is not None:
             # "feed_forward_chunk_size" can be used to save memory
