@@ -1,17 +1,18 @@
 import torch.distributed as dist
-from utils import eval_dist_init
 import os
 import time
 import argparse
 
 import torch
-from videosys import CogVideoXConfig, VideoSysEngine
+from videosys import VideoSysEngine
 from videosys.pipelines.open_sora import OpenSoraConfig
 from videosys.pipelines.cogvideox import CogVideoXConfig
 from videosys.pipelines.latte import LatteConfig
 from videosys.pipelines.cogvideox.pipeline_tau_cogvideox import CogVideoXTauConfig
 from videosys.pipelines.latte.pipeline_stu_latte import LatteSTUConfig
 from videosys.utils.utils import set_seed
+
+from utils import eval_dist_init
 
 
 def get_this_time():
@@ -54,13 +55,13 @@ def get_file_name_and_config_from_string(model, method):
             name = "opensora_pab"
             config = OpenSoraConfig(num_sampling_steps=32, enable_pab=True)
         elif method == "stu_1/2":
-            name = "opensora_stu_1/2"
+            name = "opensora_stu_12"
             config = OpenSoraConfig(num_sampling_steps=32, enable_ti=True, ti_coef=1/2, ti_filter='shortterm')
         elif method == "stu_1/3":
-            name = "opensora_stu_1/3"
+            name = "opensora_stu_13"
             config = OpenSoraConfig(num_sampling_steps=32, enable_ti=True, ti_coef=1/3, ti_filter='shortterm')
         elif method == "stu_1/5":
-            name = "opensora_stu_1/5"
+            name = "opensora_stu_15"
             config = OpenSoraConfig(num_sampling_steps=32, enable_ti=True, ti_coef=1/5, ti_filter='shortterm')
         else:
             raise ValueError("Invalid method for opensora")
@@ -72,13 +73,13 @@ def get_file_name_and_config_from_string(model, method):
             name = "cogvideox_pab"
             config = CogVideoXConfig(enable_pab=True)
         elif method == "stu_1/2":
-            name = "cogvideox_stu_1/2"
+            name = "cogvideox_stu_12"
             config = CogVideoXTauConfig(ti_coef=1/2, ti_filter='shortterm')
         elif method == "stu_1/3":
-            name = "cogvideox_stu_1/3"
+            name = "cogvideox_stu_13"
             config = CogVideoXTauConfig(ti_coef=1/3, ti_filter='shortterm')
         elif method == "stu_1/5":
-            name = "cogvideox_stu_1/5"
+            name = "cogvideox_stu_15"
             config = CogVideoXTauConfig(ti_coef=1/5, ti_filter='shortterm')
         else:
             raise ValueError("Invalid method for cogvideox")
@@ -90,13 +91,13 @@ def get_file_name_and_config_from_string(model, method):
             name = "latte_pab"
             config = LatteConfig(enable_pab=True)
         elif method == "stu_1/2":
-            name = "latte_stu_1/2"
+            name = "latte_stu_12"
             config = LatteSTUConfig(stu_coef=1/2, stu_filter='shortterm')
         elif method == "stu_1/3":
-            name = "latte_stu_1/3"
+            name = "latte_stu_13"
             config = LatteSTUConfig(stu_coef=1/3, stu_filter='shortterm')
         elif method == "stu_1/5":
-            name = "latte_stu_1/5"
+            name = "latte_stu_15"
             config = LatteSTUConfig(stu_coef=1/5, stu_filter='shortterm')
         else:
             raise ValueError("Invalid method for latte")
@@ -116,6 +117,9 @@ if __name__ == "__main__":
     name, config = get_file_name_and_config_from_string(args.model, args.method)
 
     file_path = os.path.join("profile", name)
+    dir_path = os.path.dirname(file_path)
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
 
     eval_dist_init()
     profile_actor(file_path, config)
