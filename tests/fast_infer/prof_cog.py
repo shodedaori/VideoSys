@@ -119,5 +119,5 @@ def prof_stu_model(model_path):
 
 
 if __name__ == "__main__":
-    # prof_base_model("THUDM/CogVideoX-2b")
-    prof_stu_model("THUDM/CogVideoX-5b")
+    prof_base_model("THUDM/CogVideoX-2b")
+    # prof_stu_model("THUDM/CogVideoX-5b")

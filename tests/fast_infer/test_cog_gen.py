@@ -24,7 +24,8 @@ def test_base(num_gpus, model_path):
     # prompt = "giant army with swords and bows in the desert, top view from afar"
     # prompt = "A bear and a zebra."
 
-    video = engine.generate(prompt, num_inference_steps=50, seed=0).video[0]
+    video = engine.generate(prompt, num_inference_steps=20, seed=0).video[0]
+    video = engine.generate(prompt, num_inference_steps=100, seed=0).video[0]
     output_title = prompt.replace(" ", "_")[:20]
     engine.save_video(video, f"./test_outputs/{model_path}/{output_title}_base.mp4")
 
@@ -59,7 +60,7 @@ def test_tau(num_gpus, model_path):
     config = CogVideoXTauConfig(
         model_path=model_path, 
         num_gpus=num_gpus,
-        ti_coef=0.5,
+        ti_coef=0.2,
         ti_filter=my_filter
     )
     engine = VideoSysEngine(config)
@@ -74,7 +75,8 @@ def test_tau(num_gpus, model_path):
     # prompt = "A bear and a zebra."
     # prompt = "two bears are playing chess in a park."
 
-    video = engine.generate(prompt, num_inference_steps=50, seed=0, verbose=True).video[0]
+    video = engine.generate(prompt, num_inference_steps=20, seed=0, verbose=False).video[0]
+    video = engine.generate(prompt, num_inference_steps=100, seed=0, verbose=False).video[0]
     output_title = prompt.replace(" ", "_")[:20]
     engine.save_video(video, f"./test_outputs/{model_path}/{output_title}_{my_filter}.mp4")
 

@@ -32,7 +32,7 @@ from videosys.models.transformers.utils import ShorttermWindow, PatchGather
 from videosys.models.transformers.stu_model import STUBase
 
 from ..modules.embeddings import CogVideoXPatchEmbed
-from ..modules.normalization import AdaLayerNorm, CogVideoXLayerNormZero
+from ..modules.normalization import AdaLayerNorm, LayerNormZero
 
 class KVCache:
     def __init__(
@@ -228,7 +228,7 @@ class CogTauBlock(nn.Module):
         super().__init__()
 
         # 1. Self Attention
-        self.norm1 = CogVideoXLayerNormZero(time_embed_dim, dim, norm_elementwise_affine, norm_eps, bias=True)
+        self.norm1 = LayerNormZero(time_embed_dim, dim, norm_elementwise_affine, norm_eps, bias=True)
 
         self.attn1 = Attention(
             query_dim=dim,
@@ -245,7 +245,7 @@ class CogTauBlock(nn.Module):
         self.attn1.parallel_manager = None
 
         # 2. Feed Forward
-        self.norm2 = CogVideoXLayerNormZero(time_embed_dim, dim, norm_elementwise_affine, norm_eps, bias=True)
+        self.norm2 = LayerNormZero(time_embed_dim, dim, norm_elementwise_affine, norm_eps, bias=True)
 
         self.ff = FeedForward(
             dim,
