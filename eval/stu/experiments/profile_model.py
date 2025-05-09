@@ -57,11 +57,11 @@ def get_file_name_and_config_from_string(model, method):
         elif method == "pab_2":
             name = "opensora_pab_2"
             pab_config = OpenSoraPABConfig(spatial_range=3, temporal_range=5, cross_range=7)
-            config = OpenSoraConfig(enable_pab=True, pab_config=pab_config)
+            config = OpenSoraConfig(num_sampling_steps=32, enable_pab=True, pab_config=pab_config)
         elif method == "pab_3":
             name = "opensora_pab_3"
             pab_config = OpenSoraPABConfig(spatial_range=5, temporal_range=7, cross_range=9)
-            config = OpenSoraConfig(enable_pab=True, pab_config=pab_config)
+            config = OpenSoraConfig(num_sampling_steps=32, enable_pab=True, pab_config=pab_config)
         elif method == "stu_1/2":
             name = "opensora_stu_12"
             config = OpenSoraConfig(num_sampling_steps=32, enable_ti=True, ti_coef=1/2, ti_filter='shortterm')
