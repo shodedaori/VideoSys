@@ -5,83 +5,53 @@ from videosys.pipelines.cogvideox import CogVideoXTauConfig, CogVideoXConfig
 from videosys.utils.test import empty_cache
 
 
-@pytest.mark.parametrize("num_gpus", [1, 2])
-@pytest.mark.parametrize("model_path", ["THUDM/CogVideoX-2b", "THUDM/CogVideoX-5b"])
 @empty_cache
-def test_base(num_gpus, model_path):
-    config = CogVideoXConfig(
-        model_path=model_path, 
-        num_gpus=num_gpus
-    )
+def test_base(prompt, num_infer_steps=50, measure_flag=False):
+    config = CogVideoXConfig()
     engine = VideoSysEngine(config)
 
-    # prompt = "Sunset over the sea."
-    # prompt = "A person is petting an animal (not a cat)"
-    prompt = "A person is petting a dog"
-    # prompt = "A panda standing on a surfboard in the ocean in sunset."
-    # prompt = "A sleek, modern laptop, its screen displaying a vibrant, paused scene, sits on a minimalist wooden desk. The room is bathed in soft, natural light filtering through sheer curtains, casting gentle shadows. The laptop's keyboard is mid-illumination, with a faint glow emanating from the keys, suggesting a moment frozen in time. Dust particles are suspended in the air, caught in the light, adding to the stillness. A steaming cup of coffee beside the laptop remains untouched, with wisps of steam frozen in mid-air. The scene captures a serene, almost magical pause in an otherwise bustling workspace."
-    # prompt = "korean popular dish, samgyopsal, is being baked on a stone plate with kimchi. close-up, macro shot."
-    # prompt = "giant army with swords and bows in the desert, top view from afar"
-    # prompt = "A bear and a zebra."
+    if measure_flag:
+        video = engine.generate(prompt, num_inference_steps=num_infer_steps, seed=0).video[0]
+    
+    video = engine.generate(prompt, num_inference_steps=num_infer_steps, seed=0).video[0]
 
-    video = engine.generate(prompt, num_inference_steps=20, seed=0).video[0]
-    video = engine.generate(prompt, num_inference_steps=100, seed=0).video[0]
-    output_title = prompt.replace(" ", "_")[:20]
-    engine.save_video(video, f"./test_outputs/{model_path}/{output_title}_base.mp4")
+    if not measure_flag:
+        output_title = prompt.replace(" ", "_")[:20]
+        engine.save_video(video, f"./test_outputs/CogvideoX/{output_title}_base.mp4")
 
 
-def test_pab(num_gpus, model_path):
-    config = CogVideoXConfig(
-        model_path=model_path, 
-        num_gpus=num_gpus,
-        enable_pab=True
-    )
-    engine = VideoSysEngine(config)
-
-    # prompt = "Sunset over the sea."
-    # prompt = "A person is petting an animal (not a cat)"
-    prompt = "A person is petting a dog"
-    # prompt = "A panda standing on a surfboard in the ocean in sunset."
-    # prompt = "A sleek, modern laptop, its screen displaying a vibrant, paused scene, sits on a minimalist wooden desk. The room is bathed in soft, natural light filtering through sheer curtains, casting gentle shadows. The laptop's keyboard is mid-illumination, with a faint glow emanating from the keys, suggesting a moment frozen in time. Dust particles are suspended in the air, caught in the light, adding to the stillness. A steaming cup of coffee beside the laptop remains untouched, with wisps of steam frozen in mid-air. The scene captures a serene, almost magical pause in an otherwise bustling workspace."
-    # prompt = "korean popular dish, samgyopsal, is being baked on a stone plate with kimchi. close-up, macro shot."
-    # prompt = "giant army with swords and bows in the desert, top view from afar"
-    # prompt = "A bear and a zebra."
-
-    video = engine.generate(prompt, num_inference_steps=50, seed=0).video[0]
-    output_title = prompt.replace(" ", "_")[:20]
-    engine.save_video(video, f"./test_outputs/{model_path}/{output_title}_pab.mp4")
-
-
-@pytest.mark.parametrize("num_gpus", [1, 2])
-@pytest.mark.parametrize("model_path", ["THUDM/CogVideoX-2b", "THUDM/CogVideoX-5b"])
 @empty_cache
-def test_tau(num_gpus, model_path):
-    my_filter = 'shortterm'
+def test_stu(prompt, num_infer_steps=50, stu_rate=0.5, measure_flag=False):
+    stu_filter = 'shortterm'
     config = CogVideoXTauConfig(
-        model_path=model_path, 
-        num_gpus=num_gpus,
-        ti_coef=0.2,
-        ti_filter=my_filter
+        ti_coef=stu_rate,
+        ti_filter=stu_filter,
     )
     engine = VideoSysEngine(config)
 
-    # prompt = "Sunset over the sea."
-    # prompt = "A person is petting an animal (not a cat)"
-    # prompt = "A person is petting a dog"
-    prompt = "A panda standing on a surfboard in the ocean in sunset."
-    # prompt = "A sleek, modern laptop, its screen displaying a vibrant, paused scene, sits on a minimalist wooden desk. The room is bathed in soft, natural light filtering through sheer curtains, casting gentle shadows. The laptop's keyboard is mid-illumination, with a faint glow emanating from the keys, suggesting a moment frozen in time. Dust particles are suspended in the air, caught in the light, adding to the stillness. A steaming cup of coffee beside the laptop remains untouched, with wisps of steam frozen in mid-air. The scene captures a serene, almost magical pause in an otherwise bustling workspace."
-    # prompt = "korean popular dish, samgyopsal, is being baked on a stone plate with kimchi. close-up, macro shot."
-    # prompt = "giant army with swords and bows in the desert, top view from afar"
-    # prompt = "A bear and a zebra."
-    # prompt = "two bears are playing chess in a park."
+    if measure_flag:
+        # for warming up
+        video = engine.generate(prompt, num_inference_steps=num_infer_steps, seed=0).video[0]
 
-    video = engine.generate(prompt, num_inference_steps=20, seed=0, verbose=False).video[0]
-    video = engine.generate(prompt, num_inference_steps=100, seed=0, verbose=False).video[0]
-    output_title = prompt.replace(" ", "_")[:20]
-    engine.save_video(video, f"./test_outputs/{model_path}/{output_title}_{my_filter}.mp4")
+    video = engine.generate(prompt, num_inference_steps=num_infer_steps, seed=0, verbose=False).video[0]
+
+    if not measure_flag:
+        output_title = prompt.replace(" ", "_")[:20]
+        engine.save_video(video, f"./test_outputs/CogvideoX/{output_title}_{stu_filter}.mp4")
 
 
 if __name__ == '__main__':
-    # test_base(1, "THUDM/CogVideoX-2b")
-    # test_pab(1, "THUDM/CogVideoX-2b")
-    test_tau(1, "THUDM/CogVideoX-2b")
+    prompt = "A snowy forest landscape with a dirt road running through it. The road is flanked by trees covered in snow, and the ground is also covered in snow. The sun is shining, creating a bright and serene atmosphere. The road appears to be empty, and there are no people or animals visible in the video. The style of the video is a natural landscape shot, with a focus on the beauty of the snowy forest and the peacefulness of the road."
+
+    # test_base(prompt)
+    # test_stu(prompt)
+    steps = [25, 50, 100]
+    coefs = [1/2, 1/3, 1/5]
+    for step in steps:
+        print(f"Testing CogVideoX base with {step} steps")
+        test_base(prompt, num_infer_steps=step, measure_flag=True)
+    
+    for step in steps:
+        for coef in coefs:
+            print(f"Testing CogVideoX STU with {step} steps and coef {coef}")
+            test_stu(prompt, num_infer_steps=step, stu_rate=coef, measure_flag=True)
