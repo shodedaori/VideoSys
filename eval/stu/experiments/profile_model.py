@@ -56,13 +56,11 @@ def get_file_name_and_config_from_string(model, method):
             config = OpenSoraConfig(num_sampling_steps=32, enable_pab=True)
         elif method == "pab_2":
             name = "opensora_pab_2"
-            pab_config = OpenSoraPABConfig(spatial_gap=3, temporal_gap=5, cross_gap=7)
+            pab_config = OpenSoraPABConfig(spatial_range=3, temporal_range=5, cross_range=7)
             config = OpenSoraConfig(enable_pab=True, pab_config=pab_config)
         elif method == "pab_3":
             name = "opensora_pab_3"
-            pab_config = OpenSoraPABConfig(spatial_gap=5, temporal_gap=7, cross_gap=9)
-            config = OpenSoraConfig(enable_pab=True, pab_config=pab_config)
-            pab_config = OpenSoraPABConfig(spatial_gap=5, temporal_gap=7, cross_gap=9)
+            pab_config = OpenSoraPABConfig(spatial_range=5, temporal_range=7, cross_range=9)
             config = OpenSoraConfig(enable_pab=True, pab_config=pab_config)
         elif method == "stu_1/2":
             name = "opensora_stu_12"
@@ -103,17 +101,17 @@ def get_file_name_and_config_from_string(model, method):
         elif method == "pab_2":
             name = "latte_pab_2"
             pab_config = LattePABConfig(
-                spatial_gap=3,
-                temporal_gap=4,
-                cross_gap=7,
+                spatial_range=3,
+                temporal_range=4,
+                cross_range=7,
             )
             config = LatteConfig(enable_pab=True, pab_config=pab_config)
         elif method == "pab_3":
             name = "latte_pab_3"
             pab_config = LattePABConfig(
-                spatial_gap=4,
-                temporal_gap=6,
-                cross_gap=9,
+                spatial_range=4,
+                temporal_range=6,
+                cross_range=9,
             )
             config = LatteConfig(enable_pab=True, pab_config=pab_config)
         elif method == "stu_1/2":

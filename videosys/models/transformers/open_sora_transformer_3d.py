@@ -41,6 +41,7 @@ from videosys.models.modules.embeddings import (
     TimestepEmbedder,
 )
 from videosys.utils.utils import batch_func
+from videosys.models.modules.rotary import RotaryEmbedding
 
 
 def t2i_modulate(x, shift, scale):
@@ -366,7 +367,7 @@ class STDiT3(PreTrainedModel):
         self.input_sq_size = config.input_sq_size
         self.pos_embed = OpenSoraPositionEmbedding2D(config.hidden_size)
 
-        from rotary_embedding_torch import RotaryEmbedding
+        # from rotary_embedding_torch import RotaryEmbedding
 
         self.rope = RotaryEmbedding(dim=self.hidden_size // self.num_heads)
 
