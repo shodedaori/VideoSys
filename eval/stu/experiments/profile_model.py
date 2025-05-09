@@ -5,9 +5,9 @@ import argparse
 
 import torch
 from videosys import VideoSysEngine
-from videosys.pipelines.open_sora import OpenSoraConfig
+from videosys.pipelines.open_sora import OpenSoraConfig, OpenSoraPABConfig
 from videosys.pipelines.cogvideox import CogVideoXConfig
-from videosys.pipelines.latte import LatteConfig
+from videosys.pipelines.latte import LatteConfig, LattePABConfig
 from videosys.pipelines.cogvideox.pipeline_tau_cogvideox import CogVideoXTauConfig
 from videosys.pipelines.latte.pipeline_stu_latte import LatteSTUConfig
 from videosys.utils.utils import set_seed
@@ -26,9 +26,9 @@ def profile_function(engine):
 
     video = engine.generate(prompt, seed=0).video[0]
 
-    with torch.profiler.profile(with_flops=True) as p:
-        video = engine.generate(prompt).video[0]
-    output_list.append('{:.2f} TFLOPS (torch profile)'.format(sum(k.flops for k in p.key_averages()) / 1e12))
+    # with torch.profiler.profile(with_flops=True) as p:
+    #     video = engine.generate(prompt).video[0]
+    # output_list.append('{:.2f} TFLOPS (torch profile)'.format(sum(k.flops for k in p.key_averages()) / 1e12))
 
     start = get_this_time()
     video = engine.generate(prompt).video[0]
@@ -54,6 +54,16 @@ def get_file_name_and_config_from_string(model, method):
         elif method == "pab":
             name = "opensora_pab"
             config = OpenSoraConfig(num_sampling_steps=32, enable_pab=True)
+        elif method == "pab_2":
+            name = "opensora_pab_2"
+            pab_config = OpenSoraPABConfig(spatial_gap=3, temporal_gap=5, cross_gap=7)
+            config = OpenSoraConfig(enable_pab=True, pab_config=pab_config)
+        elif method == "pab_3":
+            name = "opensora_pab_3"
+            pab_config = OpenSoraPABConfig(spatial_gap=5, temporal_gap=7, cross_gap=9)
+            config = OpenSoraConfig(enable_pab=True, pab_config=pab_config)
+            pab_config = OpenSoraPABConfig(spatial_gap=5, temporal_gap=7, cross_gap=9)
+            config = OpenSoraConfig(enable_pab=True, pab_config=pab_config)
         elif method == "stu_1/2":
             name = "opensora_stu_12"
             config = OpenSoraConfig(num_sampling_steps=32, enable_ti=True, ti_coef=1/2, ti_filter='shortterm')
@@ -90,6 +100,22 @@ def get_file_name_and_config_from_string(model, method):
         elif method == "pab":
             name = "latte_pab"
             config = LatteConfig(enable_pab=True)
+        elif method == "pab_2":
+            name = "latte_pab_2"
+            pab_config = LattePABConfig(
+                spatial_gap=3,
+                temporal_gap=4,
+                cross_gap=7,
+            )
+            config = LatteConfig(enable_pab=True, pab_config=pab_config)
+        elif method == "pab_3":
+            name = "latte_pab_3"
+            pab_config = LattePABConfig(
+                spatial_gap=4,
+                temporal_gap=6,
+                cross_gap=9,
+            )
+            config = LatteConfig(enable_pab=True, pab_config=pab_config)
         elif method == "stu_1/2":
             name = "latte_stu_12"
             config = LatteSTUConfig(stu_coef=1/2, stu_filter='shortterm')
