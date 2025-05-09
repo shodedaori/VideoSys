@@ -773,7 +773,8 @@ class LattePipeline(VideoSysPipeline):
 
         import tqdm
         progress_bar = tqdm.tqdm if verbose else lambda x: x
-        for i, t in progress_bar(list(enumerate(timesteps))):
+        tqdm_bar = progress_bar(list(enumerate(timesteps)))
+        for i, t in tqdm_bar:
             # if enable_tgate():
             #     if do_classifier_free_guidance and (i < get_gate_step()):
             #         latent_model_input = torch.cat([latents] * 2)
@@ -836,6 +837,10 @@ class LattePipeline(VideoSysPipeline):
                 if callback is not None and i % callback_steps == 0:
                     step_idx = i // getattr(self.scheduler, "order", 1)
                     callback(step_idx, t, latents)
+        
+        if verbose:
+            run_time = tqdm_bar.format_dict["elapsed"]
+            print(f"Latte TGATE sampling time: {run_time:.2f}s")
 
         if not output_type == "latents":
             if latents.shape[2] == 1:  # image

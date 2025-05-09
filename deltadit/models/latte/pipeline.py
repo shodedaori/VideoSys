@@ -805,6 +805,9 @@ class LattePipeline(VideoSysPipeline):
                         step_idx = i // getattr(self.scheduler, "order", 1)
                         callback(step_idx, t, latents)
 
+        run_time = progress_bar.format_dict["elapsed_time"]
+        print(f"Latte delta sampling time: {run_time:.2f}s")
+
         if not output_type == "latents":
             if latents.shape[2] == 1:  # image
                 video = self.decode_latents_image(latents)

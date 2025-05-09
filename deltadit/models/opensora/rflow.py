@@ -230,7 +230,8 @@ class RFLOW:
             noise_added = noise_added | (mask == 1)
 
         progress_wrap = tqdm if progress and dist.get_rank() == 0 else (lambda x: x)
-        for i, t in progress_wrap(list(enumerate(timesteps))):
+        tqdm_bar = progress_wrap(list(enumerate(timesteps)))
+        for i, t in tqdm_bar:
             # mask for adding noise
             if mask is not None:
                 mask_t = mask * self.num_timesteps
@@ -258,6 +259,10 @@ class RFLOW:
 
             if mask is not None:
                 z = torch.where(mask_t_upper[:, None, :, None, None], z, x0)
+        
+        if progress and dist.get_rank() == 0:
+            run_time = tqdm_bar.format_dict["elapsed"]
+            print(f"Opensora delta sampling time: {run_time:.2f}s")
 
         return z
 
