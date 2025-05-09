@@ -6,6 +6,7 @@ from tqdm import tqdm
 from videosys.models.transformers.os_tau_model import OpenSoraSTU
 from videosys.schedulers.scheduling_rflow_open_sora import RFLOW, timestep_transform
 from videosys.utils.utils import save_obj
+from videosys.utils.logging import logger
 
 
 class SIRFLOW(RFLOW):
@@ -70,7 +71,8 @@ class SIRFLOW(RFLOW):
         selec_index = (None, None)
 
         save_list = []
-        for i, t in progress_wrap(list(enumerate(timesteps))):
+        tqdm_bar = progress_wrap(list(enumerate(timesteps)))
+        for i, t in tqdm_bar:
             # mask for adding noise
             if mask is not None:
                 mask_t = mask * self.num_timesteps
@@ -128,6 +130,10 @@ class SIRFLOW(RFLOW):
 
             if mask is not None:
                 z = torch.where(mask_t_upper[:, None, :, None, None], z, x0)
+
+        if progress and dist.get_rank() == 0:
+            run_time = tqdm_bar.format_dict["elapsed"]
+            logger.info(f"Opensora sampleing time: {run_time:.2f}s")
 
         if verbose:
             save_obj(save_list, "./exp/", f"coef_{self.coef}_filter_{self.filter}")

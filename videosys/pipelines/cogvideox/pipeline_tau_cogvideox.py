@@ -681,8 +681,8 @@ class CogVideoXTauPipeline(VideoSysPipeline):
 
         token_index = None
         model_args = dict()
-        print("TAU inference acceleration is enabled.")
-        print(f"Total steps: {self._num_timesteps}, Warm steps: {warm_steps}, First stage end: {first_stage_end}")
+        logger.info("STU inference acceleration is enabled.")
+        logger.info(f"Total steps: {self._num_timesteps}, Warm steps: {warm_steps}, First stage end: {first_stage_end}")
 
         # 8. Denoising loop
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
@@ -765,6 +765,9 @@ class CogVideoXTauPipeline(VideoSysPipeline):
 
                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
                     progress_bar.update()
+        
+        run_time = progress_bar.format_dict["elapsed"]
+        logger.info(f"CogVideoX generation time: {run_time:.2f}s")    
 
         if verbose:
             save_obj(save_list, "./exp/", f"cogvideox")

@@ -832,7 +832,8 @@ class LattePipeline(VideoSysPipeline):
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
 
         progress_wrap = tqdm.tqdm if verbose and dist.get_rank() == 0 else (lambda x: x)
-        for i, t in progress_wrap(list(enumerate(timesteps))):
+        progress_bar = progress_wrap(list(enumerate(timesteps)))
+        for i, t in progress_bar:
             latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
             latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
@@ -880,6 +881,10 @@ class LattePipeline(VideoSysPipeline):
                 if callback is not None and i % callback_steps == 0:
                     step_idx = i // getattr(self.scheduler, "order", 1)
                     callback(step_idx, t, latents)
+
+        if verbose and dist.get_rank() == 0:
+            run_time = progress_bar.format_dict["elapsed"]
+            logger.info(f"Latte generation time: {run_time:.2f} seconds")
 
         if not output_type == "latents":
             if latents.shape[2] == 1:  # image

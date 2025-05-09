@@ -814,7 +814,8 @@ class LattePipeline(VideoSysPipeline):
 
         save_list = []
         progress_wrap = tqdm.tqdm if progress_bar and dist.get_rank() == 0 else (lambda x: x)
-        for i, t in progress_wrap(list(enumerate(timesteps))):
+        tqdm_bar = progress_wrap(list(enumerate(timesteps)))
+        for i, t in tqdm_bar:
             if i >= warm_steps - 1:
                 model_args["use_cache"] = True
                 model_args["token_index"] = token_index
@@ -880,6 +881,10 @@ class LattePipeline(VideoSysPipeline):
                 if callback is not None and i % callback_steps == 0:
                     step_idx = i // getattr(self.scheduler, "order", 1)
                     callback(step_idx, t, latents)
+
+        if progress_bar and dist.get_rank() == 0:
+            run_time = tqdm_bar.format_dict["elapsed"]
+            logger.info(f"Latte generation time: {run_time:.2f} seconds")
 
         if verbose:
             save_obj(save_list, "./exp/", f"latte")

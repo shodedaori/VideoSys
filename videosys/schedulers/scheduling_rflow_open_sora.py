@@ -12,6 +12,7 @@ import torch.distributed as dist
 from einops import rearrange
 from torch.distributions import LogisticNormal
 from tqdm import tqdm
+from videosys.utils.logging import logger
 
 
 def _extract_into_tensor(arr, timesteps, broadcast_shape):
@@ -220,7 +221,8 @@ class RFLOW:
 
         dtype = model.x_embedder.proj.weight.dtype
         all_timesteps = [int(t.to(dtype).item()) for t in timesteps]
-        for i, t in progress_wrap(list(enumerate(timesteps))):
+        tqdm_bar = progress_wrap(list(enumerate(timesteps)))
+        for i, t in tqdm_bar:
             # mask for adding noise
             if mask is not None:
                 mask_t = mask * self.num_timesteps
@@ -252,6 +254,10 @@ class RFLOW:
 
             if mask is not None:
                 z = torch.where(mask_t_upper[:, None, :, None, None], z, x0)
+
+        if progress and dist.get_rank() == 0:
+            run_time = tqdm_bar.format_dict["elapsed"]
+            logger.info(f"Opensora sampleing time: {run_time:.2f}s")
 
         return z
 

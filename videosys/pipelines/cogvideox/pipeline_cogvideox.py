@@ -736,6 +736,9 @@ class CogVideoXPipeline(VideoSysPipeline):
                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
                     progress_bar.update()
 
+        run_time = progress_bar.format_dict["elapsed"]
+        logger.info(f"CogVideoX generation time: {run_time:.2f}s")    
+
         if not output_type == "latent":
             video = self.decode_latents(latents)
             video = self.video_processor.postprocess_video(video=video, output_type=output_type)
