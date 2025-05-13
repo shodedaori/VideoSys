@@ -34,6 +34,8 @@ class STUBase(nn.Module):
             self.filter_method_int = 5
         elif filter_method == "time_level":
             self.filter_method_int = 6
+        elif filter_method == "global":
+            self.filter_method_int = 7
         else:
             raise NotImplementedError("This filter method is not implemented")
 
@@ -188,6 +190,28 @@ class STUBase(nn.Module):
         return self.channel_level_select(None, ratio, method="random", device=x.device)
     
     @torch.no_grad()
+    def global_filter(self, x, ratio, sparse_flag=False, **kwargs):
+        # x: [B, C, To, Ho, Wo]
+        T, S = self.temp_size, self.spat_size
+        assert x.size(0) == 1, "The batch size should be 1 now"
+
+        # update the short-term window
+        self.window.insert(x)
+
+        if not sparse_flag or self.filter_counter >= self.window_length - 1:
+            # reset the counter, do not filter
+            self.filter_counter = 0
+            return None
+        
+        self.filter_counter += 1
+
+        y = self.window.get_std_sqr()  # [B, C, To, Ho, Wo]
+        y = torch.sum(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
+        y = self.patch_gather(y).view(-1)  # [T, S]
+        
+        return self.global_select(y, ratio, method="largest")
+    
+    @torch.no_grad()
     def per_frame_filter(self, x, ratio, sparse_flag=False, **kwargs):
         # x: [B, C, To, Ho, Wo]
         T, S = self.temp_size, self.spat_size
@@ -279,41 +303,6 @@ class STUBase(nn.Module):
             y = self.patch_gather(y).view(-1)  # [T, S]
             
             return self.global_select(y, ratio, method="per_frame_largest")
-
-        if self.filter_counter == 2:
-            # y = torch.sqrt(y)
-            prev_y = y[:, :, :-1, :, :]  # [B, C, To-1, Ho, Wo]
-            next_y = y[:, :, 1:, :, :]   # [B, C, To-1, Ho, Wo]
-            # y = (torch.norm(next_y - prev_y, dim=1) ** 2).unsqueeze(1)  # [B, 1, To-1, Ho, Wo]
-            y = torch.norm(next_y - prev_y, dim=1, p=1).unsqueeze(1)  # [B, 1, To-1, Ho, Wo]
-            
-            # y_mean = torch.mean(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
-            # y = torch.norm(y - y_mean, dim=1, keepdim=True) ** 2  # [B, 1, To, Ho, Wo]
-            
-            y = self.patch_gather(y, flatten_flag=False).squeeze(1)  # [B, 1, T, H, W]
-            y = torch.mean(y, dim=1).view(-1) # [S]
-
-            return self.channel_level_select(y, ratio, method="largest")
-        
-        elif self.filter_counter == 4:
-            y = torch.sum(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
-            y = self.patch_gather(y).view(-1)  # [N]
-
-            return self.global_select(y, ratio, method="largest")
-        
-        elif self.filter_counter == 4:
-            y = torch.sum(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
-            y = self.patch_gather(y).view(T, S)  # [T, S]
-            y = torch.sum(y, dim=-1)  # [T]
-            
-            return self.frame_level_select(y, ratio, method="less_frequent")
-        
-        else:
-            y = torch.sum(y, dim=1, keepdim=True)  # [B, 1, To, Ho, Wo]
-            y = self.patch_gather(y).view(T, S)  # [T, S]
-            y = torch.sum(y, dim=-1)  # [T]
-            
-            return self.frame_level_select(y, ratio, method="largest")
         
     @torch.no_grad()
     def pframe_filter(self, x, ratio, sparse_flag=False, **kwargs):
@@ -383,6 +372,8 @@ class STUBase(nn.Module):
             spat_index = self.per_frame_filter(v_pred, coef, **kwargs)
         elif self.filter_method_int == 6:
             spat_index = self.time_level_filter(v_pred, coef, **kwargs)
+        elif self.filter_method_int == 7:
+            spat_index = self.global_filter(v_pred, coef, **kwargs)
         else:
             raise NotImplementedError("This filter method is not implemented")
         
